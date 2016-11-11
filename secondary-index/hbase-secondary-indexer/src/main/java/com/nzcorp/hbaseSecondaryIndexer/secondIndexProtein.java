@@ -30,17 +30,21 @@ public class secondIndexProtein extends BaseRegionObserver {
          * Hadoop Configuration element as described here:
          * https://hadoop.apache.org/docs/r2.6.1/api/org/apache/hadoop/conf/Configuration.html
          *
-         * For this context, the documentation says that the
-         * configuration object will contain values specified in
-         * hbase-site.xml
+         * The named arguments given after the last pipe separator when installing the coprocessor will be available on
+         * the above configuration element
          */
 
-        pool = new HTablePool(env.getConfiguration(), 10); //what does this do?
+        pool = new HTablePool(env.getConfiguration(), 10); //create a connection pool to the hbase table
         destinationTable = env.getConfiguration().get("destination_table", "sequence"); // we default to the sequence table
     }
 
     @Override
-    public void postPut(final ObserverContext<RegionCoprocessorEnvironment> observerContext, final Put put, final WALEdit edit, final Durability durability_enum) throws IOException {
+    public void postPut(final ObserverContext<RegionCoprocessorEnvironment> observerContext,
+                        final Put put,
+                        final WALEdit edit,
+                        final Durability durability_enum)
+            throws IOException
+    {
         try {
             final List<Cell> list_of_cells = put.get(Bytes.toBytes("data"), Bytes.toBytes("sequence_hashkey"));
 
@@ -51,7 +55,7 @@ public class secondIndexProtein extends BaseRegionObserver {
             //there should only be one hit for 'data:sequence_hashkey'
             Cell sequence_hash = list_of_cells.get(0);
 
-            // get pointer to table
+            // get table object
             HTableInterface table = pool.getTable(Bytes.toBytes(destinationTable));
 
             // create index row key
