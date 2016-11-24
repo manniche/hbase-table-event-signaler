@@ -38,5 +38,5 @@ mvn -B archetype:generate \
 		- `create 'sequence', 'data'`
 		- `alter 'protein', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-0.0.1.jar | com.nzcorp.hbaseSecondaryIndexer.secondIndexProtein | 5'`
 		- `enable 'protein'`
-		- `put 'protein', 'test_key', 'data:sequence_hashkey', 'md5hash'`
+		- `put 'protein', 'test_key', 'e:sequence_hashkey', 'md5hash'`
 		- `scan 'sequence'`

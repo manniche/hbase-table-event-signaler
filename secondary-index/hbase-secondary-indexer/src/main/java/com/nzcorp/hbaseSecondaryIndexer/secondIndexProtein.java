@@ -52,7 +52,7 @@ public class secondIndexProtein extends BaseRegionObserver {
                 return;
             }
 
-            //there should only be one hit for 'data:sequence_hashkey'
+            //there should only be one hit for 'e:sequence_hashkey'
             Cell sequence_hash = list_of_cells.get(0);
 
             // get table object
