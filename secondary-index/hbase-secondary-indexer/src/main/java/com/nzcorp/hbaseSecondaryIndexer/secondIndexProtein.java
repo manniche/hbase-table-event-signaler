@@ -5,22 +5,21 @@ import java.util.List;
 
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.util.Bytes;
-import org.apache.hadoop.hbase.client.Durability;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
-import org.apache.hadoop.hbase.client.HTablePool;
-import org.apache.hadoop.hbase.client.HTableInterface;
 
 //remember to add the hbase dependencies to the pom file
+@SuppressWarnings("unused")
 public class secondIndexProtein extends BaseRegionObserver {
 
-    private HTablePool pool = null;
-
+    //private HTablePool pool = null;
+    private Connection conn;
     private String destinationTable;
 
     @Override
@@ -34,8 +33,9 @@ public class secondIndexProtein extends BaseRegionObserver {
          * the above configuration element
          */
 
-        pool = new HTablePool(env.getConfiguration(), 10); //create a connection pool to the hbase table
-        destinationTable = env.getConfiguration().get("destination_table", "sequence"); // we default to the sequence table
+        conn = ConnectionFactory.createConnection( env.getConfiguration() );
+        destinationTable = env.getConfiguration().get("destination_table", "sequence"); // TODO: we should check whether this table exists and abort if it does not
+
     }
 
     @Override
@@ -56,14 +56,14 @@ public class secondIndexProtein extends BaseRegionObserver {
             Cell sequence_hash = list_of_cells.get(0);
 
             // get table object
-            HTableInterface table = pool.getTable(Bytes.toBytes(destinationTable));
+            Table table = conn.getTable(TableName.valueOf(destinationTable));
 
             // create index row key
             byte[] index_key = CellUtil.cloneValue(sequence_hash);
             byte[] index_value = put.getRow();
 
             Put indexput = new Put(index_key);
-            indexput.add(Bytes.toBytes("data"), Bytes.toBytes("reference"), index_value);
+            indexput.addColumn(Bytes.toBytes("data"), Bytes.toBytes("reference"), index_value);
 
             table.put(indexput);
             table.close();
@@ -76,6 +76,6 @@ public class secondIndexProtein extends BaseRegionObserver {
 
     @Override
     public void stop(CoprocessorEnvironment env) throws IOException {
-        pool.close();
+        conn.close();
     }
 }
