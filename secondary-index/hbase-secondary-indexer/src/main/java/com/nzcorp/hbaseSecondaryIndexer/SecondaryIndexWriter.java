@@ -19,7 +19,7 @@ import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 
 //remember to add the hbase dependencies to the pom file
 @SuppressWarnings("unused")
-public class secondaryIndexWriter extends BaseRegionObserver {
+public class SecondaryIndexWriter extends BaseRegionObserver {
 
     private Connection conn;
     private String destinationTable;
@@ -116,15 +116,18 @@ public class secondaryIndexWriter extends BaseRegionObserver {
     }
 
     private String getTargetRowkey(ResultScanner resultScanner) {
+        String assemblyKey = null;
         // get assembly rowkey from the secondary index
         for( Result result: resultScanner){
             Cell secIdxCell = result.current();
             byte[] rowArray = secIdxCell.getRowArray();
             String thisRow = Bytes.toString(rowArray);
             String[] bits = thisRow.split("\\+");
-            String assemblyKey = bits[bits.length-1];
-            return assemblyKey;
+            assemblyKey = bits[bits.length-1];
+            break;
         }
+        return assemblyKey;
+
     }
 
     @Override
