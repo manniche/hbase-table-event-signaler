@@ -83,7 +83,7 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
             Cell sourceKey2Cell = cells2.get(0);
             byte[] sourceKey2Value = cell.getValueArray();
 
-            Table secTable = conn.getTable(TableName.valueOf(sourceTable+"_"+destinationTable+"_index"));
+            Table secTable = conn.getTable(TableName.valueOf(destinationTable));
 
             String finalKey = Bytes.toString(sourceKey1Value)+"+"+Bytes.toString(sourceKey2Value);
 
