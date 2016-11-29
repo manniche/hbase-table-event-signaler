@@ -1,25 +1,26 @@
-package com.nzcorp.hbaseSecondaryIndexer;
-
-import java.io.IOException;
-import java.util.List;
+package com.nzcorp.hbase.data_rippler;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
 import org.apache.hadoop.hbase.CellUtil;
+import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.*;
-import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.filter.PrefixFilter;
-import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.hadoop.hbase.util.Bytes;
+
+import java.io.IOException;
+import java.util.Iterator;
+import java.util.List;
 
 //remember to add the hbase dependencies to the pom file
 @SuppressWarnings("unused")
-public class SecondaryIndexWriter extends BaseRegionObserver {
+public class DownstreamDataRippler extends BaseRegionObserver {
 
     private Connection conn;
     private String destinationTable;
@@ -42,7 +43,6 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
 
         conn = ConnectionFactory.createConnection( env.getConfiguration() );
 
-        // TODO: we should check whether this table exists and abort if it does not
         destinationTable = env.getConfiguration().get("destination_table");
         try {
             conn.getTable(TableName.valueOf(destinationTable));
@@ -118,12 +118,12 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
     private String getTargetRowkey(ResultScanner resultScanner) {
         String assemblyKey = null;
         // get assembly rowkey from the secondary index
-        for( Result result: resultScanner){
+        for (Result result : resultScanner) {
             Cell secIdxCell = result.current();
             byte[] rowArray = secIdxCell.getRowArray();
             String thisRow = Bytes.toString(rowArray);
             String[] bits = thisRow.split("\\+");
-            assemblyKey = bits[bits.length-1];
+            assemblyKey = bits[bits.length - 1];
             break;
         }
         return assemblyKey;
