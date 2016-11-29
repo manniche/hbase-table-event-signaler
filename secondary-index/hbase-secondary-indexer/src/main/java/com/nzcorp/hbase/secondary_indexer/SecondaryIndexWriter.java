@@ -17,15 +17,18 @@ import org.apache.hadoop.hbase.filter.PrefixFilter;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 
-//remember to add the hbase dependencies to the pom file
+/**
+ * Writes a specified key to a secondary index in order to support join-like operations
+ */
 @SuppressWarnings("unused")
 public class SecondaryIndexWriter extends BaseRegionObserver {
 
     private Connection conn;
     private String destinationTable;
-    private String targetCf;
-    private String sourceCf;
+    private String sourceKey;
+    private String targetKey;
     private String sourceTable;
+    private String targetCF;
     private static final Log LOGGER = LogFactory.getLog(BaseRegionObserver.class);
 
 
@@ -42,7 +45,8 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
 
         conn = ConnectionFactory.createConnection( env.getConfiguration() );
 
-        destinationTable = env.getConfiguration().get("destination_table");
+        destinationTable = env.getConfiguration().get("index_table");
+
         try {
             conn.getTable(TableName.valueOf(destinationTable));
         } catch ( IOException ioe ){
@@ -51,12 +55,10 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
             throw new IOException( err, ioe);
         }
 
-        // the column family name to take all values from
-        sourceCf = env.getConfiguration().get("source_column_family");
+        sourceKey1 = env.getConfiguration().get("source_key1");
+        sourceKey2 = env.getConfiguration().get("source_key2");
 
-        // the column family name to put values into in the destinationTable
-        targetCf = env.getConfiguration().get("target_column_family");
-
+        targetCF = env.getConfiguration().get("target_cf");
     }
 
     @Override
@@ -67,33 +69,26 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
             throws IOException
     {
         try {
-            final List<Cell> list_of_cells = put.get(Bytes.toBytes(sourceCf), Bytes.toBytes("*"));
-
-            if (list_of_cells.isEmpty()) {
+            final List<Cell> cells1 = put.get(Bytes.toBytes("e"), Bytes.toBytes(sourceKey1));
+            if (cells1.isEmpty()) {
                 return;
             }
+            Cell sourceKey1Cell = cells1.get(0);
+            byte[] sourceKey1Value = cell.getValueArray();
+
+            cells2 = put.get(Bytes.toBytes("e"), Bytes.toBytes(sourceKey2));
+            if (cells2.isEmpty()) {
+                return;
+            }
+            Cell sourceKey2Cell = cells2.get(0);
+            byte[] sourceKey2Value = cell.getValueArray();
 
             Table secTable = conn.getTable(TableName.valueOf(sourceTable+"_"+destinationTable+"_index"));
 
-            // get table object
-            Table table = conn.getTable(TableName.valueOf(destinationTable));
+            String finalKey = Bytes.toString(sourceKey1Value)+"+"+Bytes.toString(sourceKey2Value);
 
-            for (Cell cell : list_of_cells) {
-                byte[] rowKey = CellUtil.cloneRow(cell);
-                byte[] family = Bytes.toBytes(targetCf);
-                byte[] qualifier = cell.getQualifierArray();
-                byte[] value = cell.getValueArray();
-
-                Scan scan = new Scan();
-                scan.setFilter(new PrefixFilter(rowKey));
-                ResultScanner resultScanner = secTable.getScanner(scan);
-                String assemblyKey = getTargetRowkey(resultScanner);
-
-                Put targetData = new Put(Bytes.toBytes(assemblyKey));
-                put.addColumn(family, qualifier, value);
-
-                table.put(targetData);
-            }
+            Put targetData = new Put(Bytes.toBytes(finalKey));
+            table.put(targetData);
 
             table.close();
 
