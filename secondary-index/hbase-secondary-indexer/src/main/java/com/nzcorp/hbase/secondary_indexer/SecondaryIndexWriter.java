@@ -25,7 +25,8 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
 
     private Connection conn;
     private String destinationTable;
-    private String sourceKey;
+    private String sourceKey1;
+    private String sourceKey2;
     private String targetKey;
     private String sourceTable;
     private String targetCF;
@@ -74,43 +75,28 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
                 return;
             }
             Cell sourceKey1Cell = cells1.get(0);
-            byte[] sourceKey1Value = cell.getValueArray();
+            byte[] sourceKey1Value = sourceKey1Cell.getValueArray();
 
-            cells2 = put.get(Bytes.toBytes("e"), Bytes.toBytes(sourceKey2));
+            final List<Cell> cells2 = put.get(Bytes.toBytes("e"), Bytes.toBytes(sourceKey2));
             if (cells2.isEmpty()) {
                 return;
             }
             Cell sourceKey2Cell = cells2.get(0);
-            byte[] sourceKey2Value = cell.getValueArray();
+            byte[] sourceKey2Value = sourceKey2Cell.getValueArray();
 
             Table secTable = conn.getTable(TableName.valueOf(destinationTable));
 
             String finalKey = Bytes.toString(sourceKey1Value)+"+"+Bytes.toString(sourceKey2Value);
 
             Put targetData = new Put(Bytes.toBytes(finalKey));
-            table.put(targetData);
+            secTable.put(targetData);
 
-            table.close();
+            secTable.close();
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
             throw new IllegalArgumentException(ex);
         }
-
-    }
-
-    private String getTargetRowkey(ResultScanner resultScanner) {
-        String assemblyKey = null;
-        // get assembly rowkey from the secondary index
-        for( Result result: resultScanner){
-            Cell secIdxCell = result.current();
-            byte[] rowArray = secIdxCell.getRowArray();
-            String thisRow = Bytes.toString(rowArray);
-            String[] bits = thisRow.split("\\+");
-            assemblyKey = bits[bits.length-1];
-            break;
-        }
-        return assemblyKey;
 
     }
 
