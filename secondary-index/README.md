@@ -40,3 +40,15 @@ mvn -B archetype:generate \
 		- `enable 'protein'`
 		- `put 'protein', 'test_key', 'e:sequence_hashkey', 'md5hash'`
 		- `scan 'sequence'`
+
+# Install the coprocessor on a table
+
+```
+% cd bbd/src/hbase-coprocessors/secondary-index/hbase-secondary-index
+% mvn package
+% ssh {one of the cluster nodes}
+% sudo -u hbase hbase shell
+
+hbase(main):001:0> alter '{table_name}', METHOD => 'table_att', 'coprocessor'=>'/home/{$USER}/code/bbd/src/hbase-coprocessors/secondary-index/hbase-secondary-indexer/target/hbase-secondary-indexer-{version number}.jar|com.nzcorp.hbaseSecondaryIndexer.SecondaryIndexWriter|1001|destination_table={where to write secondary index},source_key={name of column to write to the secondary index}'
+
+```
