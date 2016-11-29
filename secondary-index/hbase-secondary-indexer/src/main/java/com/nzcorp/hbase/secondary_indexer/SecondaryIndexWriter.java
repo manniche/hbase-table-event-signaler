@@ -29,7 +29,6 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
     private String sourceKey2;
     private String targetKey;
     private String sourceTable;
-    private String targetCF;
     private static final Log LOGGER = LogFactory.getLog(BaseRegionObserver.class);
 
 
@@ -46,7 +45,7 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
 
         conn = ConnectionFactory.createConnection( env.getConfiguration() );
 
-        destinationTable = env.getConfiguration().get("index_table");
+        destinationTable = env.getConfiguration().get("destination_table");
 
         try {
             conn.getTable(TableName.valueOf(destinationTable));
@@ -58,8 +57,6 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
 
         sourceKey1 = env.getConfiguration().get("source_key1");
         sourceKey2 = env.getConfiguration().get("source_key2");
-
-        targetCF = env.getConfiguration().get("target_cf");
     }
 
     @Override

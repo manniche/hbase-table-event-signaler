@@ -49,6 +49,10 @@ mvn -B archetype:generate \
 % ssh {one of the cluster nodes}
 % sudo -u hbase hbase shell
 
-hbase(main):001:0> alter '{table_name}', METHOD => 'table_att', 'coprocessor'=>'/home/{$USER}/code/bbd/src/hbase-coprocessors/secondary-index/hbase-secondary-indexer/target/hbase-secondary-indexer-{version number}.jar|com.nzcorp.hbaseSecondaryIndexer.SecondaryIndexWriter|1001|destination_table={where to write secondary index},source_key={name of column to write to the secondary index}'
+hbase(main):001:0> alter '{table_name}', METHOD => 'table_att', 'coprocessor'=>'/home/{$USER}/code/bbd/src/hbase-coprocessors/secondary-index/hbase-secondary-indexer/target/hbase-secondary-indexer-{version number}.jar|com.nzcorp.hbaseSecondaryIndexer.SecondaryIndexWriter|5|destination_table={where to write secondary index},source_key1={first part of the source key},source_key2={second part of the source key}'
 
 ```
+
+For the assembly table, the `destination_table` will be
+genome_assembly_index and `source_key1` and `source_key2` are the
+constituents of the value to be writting in the secondary index.
