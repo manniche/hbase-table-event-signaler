@@ -49,10 +49,32 @@ mvn -B archetype:generate \
 % ssh {one of the cluster nodes}
 % sudo -u hbase hbase shell
 
-hbase(main):001:0> alter '{table_name}', METHOD => 'table_att', 'coprocessor'=>'/home/{$USER}/code/bbd/src/hbase-coprocessors/secondary-index/hbase-secondary-indexer/target/hbase-secondary-indexer-{version number}.jar|com.nzcorp.hbaseSecondaryIndexer.SecondaryIndexWriter|5|destination_table={where to write secondary index},source_key1={first part of the source key},source_key2={second part of the source key}'
-
+hbase(main):001:0> alter '{table_name}', METHOD => 'table_att', 'coprocessor'=>'/home/{$USER}/code/bbd/src/hbase-coprocessors/secondary-index/hbase-secondary-indexer/target/hbase-secondary-indexer-{version number}.jar|com.nzcorp.hbaseSecondaryIndexer.SecondaryIndexWriter|5|destination_table={where to write secondary index},source_key={the source key},source_column={the column to look for the source key in}'
 ```
 
 For the assembly table, the `destination_table` will be
 genome_assembly_index and `source_key1` and `source_key2` are the
-constituents of the value to be writting in the secondary index.
+constituents of the value to be written in the secondary index.
+
+
+For testing the secondary indexer in the docker setup, build and copy the secondary indexer to the docker libs:
+
+```
+cd src/hbase-coprocessors/secondary-index/hbase-secondary-indexer
+mvn package
+cp target/hbase-secondary-indexer-0.0.2.jar ../../../../docker/hbase/lib/hbase-secondary-indexer-0.0.2.jar
+```
+
+And after that, execute the following in the docker container (`docker exec -it /bin/bash` and `hbase shell`):
+
+```
+create 'assembly', 'e'
+create 'genome_assembly_index', 'data'
+disable 'assembly'
+alter 'assembly', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-0.0.2.jar|com.nzcorp.hbase.secondary_indexer.SecondaryIndexWriter|5|destination_table=genome_assembly_index,source_column=genome_accession_number'
+enable 'assembly'
+put 'assembly', 'EFB1', 'e:genome_accession_number', 'EFG1'
+scan 'genome_assembly_index', LIMIT=>1
+```
+
+
