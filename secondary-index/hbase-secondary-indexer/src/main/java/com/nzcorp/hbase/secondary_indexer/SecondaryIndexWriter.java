@@ -2,6 +2,7 @@ package com.nzcorp.hbase.secondary_indexer;
 
 import java.io.IOException;
 import java.util.List;
+import java.nio.ByteBuffer;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -13,7 +14,6 @@ import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
-import org.apache.hadoop.hbase.filter.PrefixFilter;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 
@@ -25,10 +25,7 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
 
     private Connection conn;
     private String destinationTable;
-    private String sourceKey1;
-    private String sourceKey2;
-    private String targetKey;
-    private String sourceTable;
+    private String sourceColumn;
     private static final Log LOGGER = LogFactory.getLog(BaseRegionObserver.class);
 
 
@@ -55,8 +52,8 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
             throw new IOException( err, ioe);
         }
 
-        sourceKey1 = env.getConfiguration().get("source_key1");
-        sourceKey2 = env.getConfiguration().get("source_key2");
+        sourceColumn = env.getConfiguration().get("source_column");
+	    LOGGER.info("Initializing secondary indexer with destination table "+destinationTable+" and looking for "+sourceColumn);
     }
 
     @Override
@@ -67,25 +64,28 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
             throws IOException
     {
         try {
-            final List<Cell> cells1 = put.get(Bytes.toBytes("e"), Bytes.toBytes(sourceKey1));
-            if (cells1.isEmpty()) {
-                return;
-            }
-            Cell sourceKey1Cell = cells1.get(0);
-            byte[] sourceKey1Value = sourceKey1Cell.getValueArray();
 
-            final List<Cell> cells2 = put.get(Bytes.toBytes("e"), Bytes.toBytes(sourceKey2));
-            if (cells2.isEmpty()) {
+	    final List<Cell> cells = put.get(Bytes.toBytes("e"), Bytes.toBytes(sourceColumn));
+            if (cells.isEmpty()) {
                 return;
             }
-            Cell sourceKey2Cell = cells2.get(0);
-            byte[] sourceKey2Value = sourceKey2Cell.getValueArray();
+            LOGGER.info( "Got cell object matching "+sourceColumn );
+            Cell sourceColumnCell = cells.get(0);
+            byte[] sourceValue = CellUtil.cloneValue(sourceColumnCell);
 
             Table secTable = conn.getTable(TableName.valueOf(destinationTable));
 
-            String finalKey = Bytes.toString(sourceKey1Value)+"+"+Bytes.toString(sourceKey2Value);
+            byte[] sourceKey = put.getRow();
 
-            Put targetData = new Put(Bytes.toBytes(finalKey));
+            ByteBuffer bb = ByteBuffer.allocate(sourceValue.length+1+sourceKey.length);
+            bb.put( sourceValue );
+            bb.put( "+".getBytes() );
+            bb.put( sourceKey );
+
+            byte[] finalKey = bb.array();
+
+            Put targetData = new Put(finalKey);
+            targetData.addColumn("data".getBytes(), "".getBytes(), "".getBytes());
             secTable.put(targetData);
 
             secTable.close();
