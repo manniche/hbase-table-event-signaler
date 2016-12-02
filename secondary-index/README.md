@@ -78,3 +78,13 @@ scan 'genome_assembly_index', LIMIT=>1
 ```
 
 
+```
+create 'assembly', 'e', 'eg'
+create 'assembly_genome_index', 'd'
+put 'assembly_genome_index', 'EFG1+EFB1', 'd', ''
+create 'genome', 'e'
+disable 'genome'
+alter 'genome', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-data-rippler-0.0.2.jar|com.nzcorp.hbase.data_rippler.DownstreamDataRippler|10|destination_table=assembly,secondary_index_table=assembly_genome_index,source_column_family=e,target_column_family=eg'
+enable 'genome'
+put 'genome', 'EFG1', 'e:accession_number', 'EFG1'
+```
