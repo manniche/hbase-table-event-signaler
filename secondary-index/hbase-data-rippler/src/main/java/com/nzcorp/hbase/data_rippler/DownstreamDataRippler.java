@@ -15,6 +15,7 @@ import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -24,10 +25,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
     private Connection conn;
     private String destinationTable;
-    private String targetCf;
+    private String secondaryIndexTable;
     private String sourceCf;
-    private String sourceTable;
-    private static final Log LOGGER = LogFactory.getLog(BaseRegionObserver.class);
+    private String targetCf;
+    private static final Log LOGGER = LogFactory.getLog(DownstreamDataRippler.class);
 
 
     @Override
@@ -41,9 +42,12 @@ public class DownstreamDataRippler extends BaseRegionObserver {
          * the above configuration element
          */
 
+        LOGGER.info( "Entering DownstreamDataRippler::start" );
+
         conn = ConnectionFactory.createConnection( env.getConfiguration() );
 
         destinationTable = env.getConfiguration().get("destination_table");
+        LOGGER.info( String.format( "Using destination table", destinationTable ));
         try {
             conn.getTable(TableName.valueOf(destinationTable));
         } catch ( IOException ioe ){
@@ -52,21 +56,17 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             throw new IOException( err, ioe);
         }
 
-        sourceTable = env.getConfiguration().get("source_table");
-        try {
-            conn.getTable(TableName.valueOf(sourceTable));
-        } catch ( IOException ioe ){
-            String err = "Table "+sourceTable+" does not exist";
-            LOGGER.error(err, ioe);
-            throw new IOException( err, ioe);
-        }
-
+        // the column family name to take all values from
+        secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
 
         // the column family name to take all values from
         sourceCf = env.getConfiguration().get("source_column_family");
 
         // the column family name to put values into in the destinationTable
         targetCf = env.getConfiguration().get("target_column_family");
+
+        LOGGER.info("Initializing data rippler copying values from column family "+sourceCf+" to "+destinationTable+":"+targetCf );
+        LOGGER.info("Using secondary index "+secondaryIndexTable);
 
     }
 
@@ -77,57 +77,67 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                         final Durability durability_enum)
             throws IOException
     {
+	Table table = null;
         try {
-            final List<Cell> list_of_cells = put.get(Bytes.toBytes(sourceCf), Bytes.toBytes("*"));
-
+	    final ArrayList<Cell> list_of_cells = edit.getCells();
+	    
             if (list_of_cells.isEmpty()) {
                 return;
             }
 
-            Table secTable = conn.getTable(TableName.valueOf(sourceTable+"_"+destinationTable+"_index"));
+            Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
 
+	    Cell cell = list_of_cells.get(0);
+            LOGGER.debug("Found "+Integer.toString(list_of_cells.size())+" cells ");
+
+            byte[] rowKey = CellUtil.cloneRow(cell);
+            byte[] family = targetCf.getBytes();
+            byte[] qualifier = CellUtil.cloneQualifier(cell);
+            byte[] value = CellUtil.cloneValue(cell);
+
+	    LOGGER.info(String.format("Found rowkey: %s", new String(rowKey)));
+	    
+            Scan scan = new Scan();
+            scan.setFilter(new PrefixFilter(rowKey));
+            ResultScanner resultScanner = secTable.getScanner(scan);
+            List<String> assemblyKeys = getTargetRowkeys(resultScanner);
+
+            LOGGER.info("Got "+Integer.toString(assemblyKeys.size())+" assemblykeys from "+new String(rowKey)+" prefix");
             // get table object
-            Table table = conn.getTable(TableName.valueOf(destinationTable));
-
-            for (Cell cell : list_of_cells) {
-                byte[] rowKey = CellUtil.cloneRow(cell);
-                byte[] family = Bytes.toBytes(targetCf);
-                byte[] qualifier = cell.getQualifierArray();
-                byte[] value = cell.getValueArray();
-
-                Scan scan = new Scan();
-                scan.setFilter(new PrefixFilter(rowKey));
-                ResultScanner resultScanner = secTable.getScanner(scan);
-                String assemblyKey = getTargetRowkey(resultScanner);
-
+            table = conn.getTable(TableName.valueOf(destinationTable));
+            for (String assemblyKey: assemblyKeys) {
+                LOGGER.info("Put'ing into "+destinationTable+": "+assemblyKey);
                 Put targetData = new Put(Bytes.toBytes(assemblyKey));
-                put.addColumn(family, qualifier, value);
-
-                table.put(targetData);
+		Cell insertable = CellUtil.createCell( family, qualifier, value);
+		LOGGER.info(String.format("Will insert %s:%s[%s]", new String(family), new String(qualifier), new String(value)));
+		//                put.addColumn(family, qualifier, value);
+		put.add(insertable);
+		table.put(targetData);
             }
-
+		
             table.close();
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
+	    table.close();
             throw new IllegalArgumentException(ex);
         }
 
     }
 
-    private String getTargetRowkey(ResultScanner resultScanner) {
-        String assemblyKey = null;
+    private List<String> getTargetRowkeys(ResultScanner resultScanner) {
+        List<String> assemblyKeys = new ArrayList<String>();
+	LOGGER.info("filtering on rowkey");
         // get assembly rowkey from the secondary index
         for (Result result : resultScanner) {
-            Cell secIdxCell = result.current();
-            byte[] rowArray = secIdxCell.getRowArray();
-            String thisRow = Bytes.toString(rowArray);
-            String[] bits = thisRow.split("\\+");
-            assemblyKey = bits[bits.length - 1];
-            break;
+	    LOGGER.info(String.format("result : %s",result));
+	    byte[] indexKey = result.getRow();
+	    LOGGER.info(String.format("indexKey: %s", new String(indexKey)));
+            String[] bits = new String(indexKey).split("\\+");
+	    LOGGER.info(String.format("assemblyKey %s", bits[bits.length - 1]));
+            assemblyKeys.add( bits[bits.length - 1] );
         }
-        return assemblyKey;
-
+        return assemblyKeys;
     }
 
     @Override
