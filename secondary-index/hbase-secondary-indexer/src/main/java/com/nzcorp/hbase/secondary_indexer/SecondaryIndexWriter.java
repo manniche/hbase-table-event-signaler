@@ -85,7 +85,7 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
             byte[] finalKey = bb.array();
 
             Put targetData = new Put(finalKey);
-            targetData.addColumn("data".getBytes(), "".getBytes(), "".getBytes());
+            targetData.addColumn("d".getBytes(), "".getBytes(), "".getBytes());
             secTable.put(targetData);
 
             secTable.close();
