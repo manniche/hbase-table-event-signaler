@@ -69,7 +69,6 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
             if (cells.isEmpty()) {
                 return;
             }
-            LOGGER.info( "Got cell object matching "+sourceColumn );
             Cell sourceColumnCell = cells.get(0);
             byte[] sourceValue = CellUtil.cloneValue(sourceColumnCell);
 
