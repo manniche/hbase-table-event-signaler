@@ -90,10 +90,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 	    Cell cell = list_of_cells.get(0);
             LOGGER.debug("Found "+Integer.toString(list_of_cells.size())+" cells ");
 
-            byte[] rowKey = CellUtil.cloneRow(cell);
-            byte[] family = targetCf.getBytes();
-            byte[] qualifier = CellUtil.cloneQualifier(cell);
-            byte[] value = CellUtil.cloneValue(cell);
+            final byte[] rowKey = CellUtil.cloneRow(cell);
+            final byte[] family = targetCf.getBytes();
+            final byte[] qualifier = CellUtil.cloneQualifier(cell);
+            final byte[] value = CellUtil.cloneValue(cell);
 
 	    LOGGER.info(String.format("Found rowkey: %s", new String(rowKey)));
 	    
@@ -107,11 +107,12 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             table = conn.getTable(TableName.valueOf(destinationTable));
             for (String assemblyKey: assemblyKeys) {
                 LOGGER.info("Put'ing into "+destinationTable+": "+assemblyKey);
-                Put targetData = new Put(Bytes.toBytes(assemblyKey));
-		Cell insertable = CellUtil.createCell( family, qualifier, value);
-		LOGGER.info(String.format("Will insert %s:%s[%s]", new String(family), new String(qualifier), new String(value)));
-		//                put.addColumn(family, qualifier, value);
-		put.add(insertable);
+                Put targetData = new Put(Bytes.toBytes(assemblyKey)).addColumn(family, qualifier, value);
+		//Cell insertable = CellUtil.createCell( family, qualifier, value);
+		//LOGGER.info(String.format("Will insert cell %s", insertable));
+		LOGGER.info(String.format("Will insert %s:%s = %s", new String(family), new String(qualifier), new String(value)));
+		//targetData.addColumn(family, qualifier, value);
+		//targetData.add(insertable);
 		table.put(targetData);
             }
 		
