@@ -36,7 +36,7 @@ mvn -B archetype:generate \
 	- Load the coprocessor for a table in the shell:
 		- `disable 'protein'`
 		- `create 'sequence', 'data'`
-		- `alter 'protein', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-0.0.1.jar | com.nzcorp.hbaseSecondaryIndexer.secondIndexProtein | 5'`
+		- `alter 'protein', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-{version number}.jar | com.nzcorp.hbaseSecondaryIndexer.secondIndexProtein | 5'`
 		- `enable 'protein'`
 		- `put 'protein', 'test_key', 'e:sequence_hashkey', 'md5hash'`
 		- `scan 'sequence'`
@@ -49,7 +49,7 @@ mvn -B archetype:generate \
 % ssh {one of the cluster nodes}
 % sudo -u hbase hbase shell
 
-hbase(main):001:0> alter '{table_name}', METHOD => 'table_att', 'coprocessor'=>'/home/{$USER}/code/bbd/src/hbase-coprocessors/secondary-index/hbase-secondary-indexer/target/hbase-secondary-indexer-{version number}.jar|com.nzcorp.hbaseSecondaryIndexer.SecondaryIndexWriter|5|destination_table={where to write secondary index},source_key={the source key},source_column={the column to look for the source key in}'
+hbase(main):001:0> alter '{table_name}', METHOD => 'table_att', 'coprocessor'=>'hdfs:///user/hbase/hbase-secondary-indexer-{version number}.jar|com.nzcorp.hbaseSecondaryIndexer.SecondaryIndexWriter|5|destination_table={where to write secondary index},source_key={the source key},source_column={the column to look for the source key in}'
 ```
 
 For the assembly table, the `destination_table` will be
@@ -62,7 +62,7 @@ For testing the secondary indexer in the docker setup, build and copy the second
 ```
 cd src/hbase-coprocessors/secondary-index/hbase-secondary-indexer
 mvn package
-cp target/hbase-secondary-indexer-0.0.2.jar ../../../../docker/hbase/lib/hbase-secondary-indexer-0.0.2.jar
+cp target/hbase-secondary-indexer-{version number}.jar ../../../../docker/hbase/lib/hbase-secondary-indexer-{version number}.jar
 ```
 
 And after that, execute the following in the docker container (`docker exec -it /bin/bash` and `hbase shell`):
@@ -71,7 +71,7 @@ And after that, execute the following in the docker container (`docker exec -it 
 create 'assembly', 'e'
 create 'genome_assembly_index', 'data'
 disable 'assembly'
-alter 'assembly', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-0.0.2.jar|com.nzcorp.hbase.secondary_indexer.SecondaryIndexWriter|5|destination_table=genome_assembly_index,source_column=genome_accession_number'
+alter 'assembly', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-{correct version string}.jar|com.nzcorp.hbase.secondary_indexer.SecondaryIndexWriter|5|destination_table=genome_assembly_index,source_column=genome_accession_number'
 enable 'assembly'
 put 'assembly', 'EFB1', 'e:genome_accession_number', 'EFG1'
 scan 'genome_assembly_index', LIMIT=>1
@@ -84,7 +84,15 @@ create 'assembly_genome_index', 'd'
 put 'assembly_genome_index', 'EFG1+EFB1', 'd', ''
 create 'genome', 'e'
 disable 'genome'
-alter 'genome', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-data-rippler-0.0.2.jar|com.nzcorp.hbase.data_rippler.DownstreamDataRippler|10|destination_table=assembly,secondary_index_table=assembly_genome_index,source_column_family=e,target_column_family=eg'
+alter 'genome', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-data-rippler-{correct version string}.jar|com.nzcorp.hbase.data_rippler.DownstreamDataRippler|10|destination_table=assembly,secondary_index_table=assembly_genome_index,source_column_family=e,target_column_family=eg'
 enable 'genome'
 put 'genome', 'EFG1', 'e:accession_number', 'EFG1'
+```
+
+
+```
+alter 'assembly', 'eg'
+disable 'genome'
+alter 'genome', METHOD => 'table_att', 'coprocessor'=>'hdfs:///user/hbase/hbase-data-rippler-{correct version string}.jar|com.nzcorp.hbase.data_rippler.DownstreamDataRippler|20|destination_table=assembly,secondary_index_table=assembly_genome_index,source_column_family=e,target_column_family=eg'
+enable 'genome'
 ```
