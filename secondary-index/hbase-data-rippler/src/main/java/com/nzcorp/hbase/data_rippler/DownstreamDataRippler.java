@@ -42,12 +42,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
          * the above configuration element
          */
 
-        LOGGER.info( "Entering DownstreamDataRippler::start" );
-
         conn = ConnectionFactory.createConnection( env.getConfiguration() );
 
         destinationTable = env.getConfiguration().get("destination_table");
-        LOGGER.info( String.format( "Using destination table", destinationTable ));
+        LOGGER.info( String.format( "Using destination table %s", destinationTable ));
         try {
             conn.getTable(TableName.valueOf(destinationTable));
         } catch ( IOException ioe ){
@@ -86,36 +84,32 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             }
 
             Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
+            //Cell cell = list_of_cells.get(0);
+            LOGGER.info("Found "+Integer.toString(list_of_cells.size())+" cells in Put");
 
-	    Cell cell = list_of_cells.get(0);
-            LOGGER.debug("Found "+Integer.toString(list_of_cells.size())+" cells ");
+            for (Cell cell: list_of_cells) {
+                final byte[] rowKey = CellUtil.cloneRow(cell);
+                final byte[] family = targetCf.getBytes();
+                final byte[] qualifier = CellUtil.cloneQualifier(cell);
+                final byte[] value = CellUtil.cloneValue(cell);
 
-            final byte[] rowKey = CellUtil.cloneRow(cell);
-            final byte[] family = targetCf.getBytes();
-            final byte[] qualifier = CellUtil.cloneQualifier(cell);
-            final byte[] value = CellUtil.cloneValue(cell);
+                LOGGER.trace(String.format("Found rowkey: %s", new String(rowKey)));
 
-	    LOGGER.info(String.format("Found rowkey: %s", new String(rowKey)));
-	    
-            Scan scan = new Scan();
-            scan.setFilter(new PrefixFilter(rowKey));
-            ResultScanner resultScanner = secTable.getScanner(scan);
-            List<String> assemblyKeys = getTargetRowkeys(resultScanner);
+                Scan scan = new Scan();
+                scan.setFilter(new PrefixFilter(rowKey));
+                ResultScanner resultScanner = secTable.getScanner(scan);
+                List<String> assemblyKeys = getTargetRowkeys(resultScanner);
 
-            LOGGER.info("Got "+Integer.toString(assemblyKeys.size())+" assemblykeys from "+new String(rowKey)+" prefix");
-            // get table object
-            table = conn.getTable(TableName.valueOf(destinationTable));
-            for (String assemblyKey: assemblyKeys) {
-                LOGGER.info("Put'ing into "+destinationTable+": "+assemblyKey);
-                Put targetData = new Put(Bytes.toBytes(assemblyKey)).addColumn(family, qualifier, value);
-		//Cell insertable = CellUtil.createCell( family, qualifier, value);
-		//LOGGER.info(String.format("Will insert cell %s", insertable));
-		LOGGER.info(String.format("Will insert %s:%s = %s", new String(family), new String(qualifier), new String(value)));
-		//targetData.addColumn(family, qualifier, value);
-		//targetData.add(insertable);
-		table.put(targetData);
+                LOGGER.trace("Got " + Integer.toString(assemblyKeys.size()) + " assemblykeys from " + new String(rowKey) + " prefix");
+                // get table object
+                table = conn.getTable(TableName.valueOf(destinationTable));
+                for (String assemblyKey : assemblyKeys) {
+                    LOGGER.trace("Put'ing into " + destinationTable + ": " + assemblyKey);
+                    Put targetData = new Put(Bytes.toBytes(assemblyKey)).addColumn(family, qualifier, value);
+                    LOGGER.trace(String.format("Will insert %s:%s = %s", new String(family), new String(qualifier), new String(value)));
+                    table.put(targetData);
+                }
             }
-		
             table.close();
 
         } catch (IllegalArgumentException ex) {
@@ -128,14 +122,12 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
     private List<String> getTargetRowkeys(ResultScanner resultScanner) {
         List<String> assemblyKeys = new ArrayList<String>();
-	LOGGER.info("filtering on rowkey");
         // get assembly rowkey from the secondary index
         for (Result result : resultScanner) {
-	    LOGGER.info(String.format("result : %s",result));
-	    byte[] indexKey = result.getRow();
-	    LOGGER.info(String.format("indexKey: %s", new String(indexKey)));
+            byte[] indexKey = result.getRow();
+            LOGGER.trace(String.format("indexKey: %s", new String(indexKey)));
             String[] bits = new String(indexKey).split("\\+");
-	    LOGGER.info(String.format("assemblyKey %s", bits[bits.length - 1]));
+            LOGGER.debug(String.format("assemblyKey %s", bits[bits.length - 1]));
             assemblyKeys.add( bits[bits.length - 1] );
         }
         return assemblyKeys;
