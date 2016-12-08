@@ -15,6 +15,7 @@ import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -96,7 +97,8 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 LOGGER.trace(String.format("Found rowkey: %s", new String(rowKey)));
 
                 Scan scan = new Scan();
-                scan.setFilter(new PrefixFilter(rowKey));
+                byte[] filter = Bytes.add(rowKey, "+".getBytes());
+                scan.setFilter(new PrefixFilter(filter));
                 ResultScanner resultScanner = secTable.getScanner(scan);
                 List<String> assemblyKeys = getTargetRowkeys(resultScanner);
 
