@@ -93,7 +93,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 final byte[] qualifier = CellUtil.cloneQualifier(cell);
                 final byte[] value = CellUtil.cloneValue(cell);
 
-                LOGGER.trace(String.format("Found rowkey: %s", new String(rowKey)));
+                LOGGER.info(String.format("Found rowkey: '%s'", new String(rowKey)));
 
                 Scan scan = new Scan();
                 scan.setFilter(new PrefixFilter(rowKey));
@@ -127,7 +127,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             byte[] indexKey = result.getRow();
             LOGGER.trace(String.format("indexKey: %s", new String(indexKey)));
             String[] bits = new String(indexKey).split("\\+");
-            LOGGER.debug(String.format("assemblyKey %s", bits[bits.length - 1]));
+            LOGGER.info(String.format("Adding assemblyKey '%s' to list", bits[bits.length - 1]));
             assemblyKeys.add( bits[bits.length - 1] );
         }
         return assemblyKeys;

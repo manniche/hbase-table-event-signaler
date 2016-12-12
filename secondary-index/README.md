@@ -96,3 +96,12 @@ disable 'genome'
 alter 'genome', METHOD => 'table_att', 'coprocessor'=>'hdfs:///user/hbase/hbase-data-rippler-{correct version string}.jar|com.nzcorp.hbase.data_rippler.DownstreamDataRippler|20|destination_table=assembly,secondary_index_table=assembly_genome_index,source_column_family=e,target_column_family=eg'
 enable 'genome'
 ```
+
+
+Removing a coprocessor
+
+```
+disable 'genome'
+alter 'genome', METHOD => 'table_att_unset', NAME=>'coprocessor$1'
+enable 'genome'
+```
