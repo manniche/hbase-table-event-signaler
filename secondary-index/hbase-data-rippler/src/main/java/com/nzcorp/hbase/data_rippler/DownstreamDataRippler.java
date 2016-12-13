@@ -10,14 +10,10 @@ import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
-import org.apache.hadoop.hbase.filter.PrefixFilter;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
-import org.apache.hadoop.hbase.util.Bytes;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
 //remember to add the hbase dependencies to the pom file
@@ -26,6 +22,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
     private Connection conn;
     private String destinationTable;
+    private String secondaryIndexColumnFamily;
     private String secondaryIndexTable;
     private String sourceCf;
     private String targetCf;
@@ -54,6 +51,8 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             LOGGER.error(err, ioe);
             throw new IOException( err, ioe);
         }
+
+        secondaryIndexColumnFamily = env.getConfiguration().get("index_column_family");
 
         // the column family name to take all values from
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
@@ -95,7 +94,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
                 LOGGER.trace(String.format("Found rowkey: %s", new String(rowKey)));
 
-                List<byte[]> targetRowkeys = getTargetRowkeys(rowKey);
+                List<byte[]> targetRowkeys = getTargetRowkeys(rowKey, secondaryIndexColumnFamily);
                 LOGGER.trace("Got " + Integer.toString(targetRowkeys.size()) + " assemblykeys from " + new String(rowKey) + " prefix");
                 // get table object
                 table = conn.getTable(TableName.valueOf(destinationTable));
@@ -117,7 +116,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
     }
 
-    private List<byte[]> getTargetRowkeys(byte[] rowKey) throws IOException{
+    private List<byte[]> getTargetRowkeys(byte[] rowKey, String secondaryIndexColumnFamily) throws IOException{
         List<byte[]> targetKeys = new ArrayList<byte[]>();
         Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
 
@@ -127,8 +126,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
         for( Cell ccell: cellList )
         {
-            LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(ccell))));
-            targetKeys.add(CellUtil.cloneQualifier(ccell));
+            if( new String( CellUtil.cloneFamily( ccell ) ).equals( secondaryIndexColumnFamily ) ){
+                LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(ccell))));
+                targetKeys.add(CellUtil.cloneQualifier(ccell));
+            }
         }
         secTable.close();
         return targetKeys;
