@@ -69,14 +69,15 @@ And after that, execute the following in the docker container (`docker exec -it 
 
 ```
 create 'assembly', 'e'
-create 'genome_assembly_index', 'data'
+create 'assembly_genome_index', 'a', 'n', 'p'
 disable 'assembly'
-alter 'assembly', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-{correct version string}.jar|com.nzcorp.hbase.secondary_indexer.SecondaryIndexWriter|5|destination_table=genome_assembly_index,source_column=genome_accession_number'
+alter 'assembly', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-{correct version string}.jar|com.nzcorp.hbase.secondary_indexer.SecondaryIndexWriter|5|destination_table=assembly_genome_index,source_column=genome_accession_number,secondary_idx_cf=a'
 enable 'assembly'
 put 'assembly', 'EFB1', 'e:genome_accession_number', 'EFG1'
 scan 'genome_assembly_index', LIMIT=>1
 ```
 
+Install the data rippler in the docker container with:
 
 ```
 create 'assembly', 'e', 'eg'
@@ -90,9 +91,43 @@ put 'genome', 'EFG1', 'e:accession_number', 'EFG1'
 ```
 
 
+On a running instance on the production cluster, upload the jar files to hdfs with
+
+```
+sudo -u hbase hdfs dfs -put bbd/src/hbase-coprocessors/secondary-index/hbase-data-rippler/target/hbase-data-rippler-{version string}.jar
+```
+
+and then install the data rippler with:
+
 ```
 alter 'assembly', 'eg'
 disable 'genome'
 alter 'genome', METHOD => 'table_att', 'coprocessor'=>'hdfs:///user/hbase/hbase-data-rippler-{correct version string}.jar|com.nzcorp.hbase.data_rippler.DownstreamDataRippler|20|destination_table=assembly,secondary_index_table=assembly_genome_index,source_column_family=e,target_column_family=eg'
 enable 'genome'
 ```
+
+
+Removing a coprocessor
+
+```
+disable 'genome'
+alter 'genome', METHOD => 'table_att_unset', NAME=>'coprocessor$1'
+enable 'genome'
+```
+
+Docker testing the interaction between the secondary indexer and the data rippler (set the correct version number for the jars respectively:
+
+```
+create 'assembly', 'e', 'eg'
+create 'assembly_genome_index', 'a', 'n', 'p'
+create 'genome', 'e'
+disable 'assembly'
+disble 'genome'
+alter 'assembly', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-secondary-indexer-0.2.1.jar|com.nzcorp.hbase.secondary_indexer.SecondaryIndexWriter|5|destination_table=assembly_genome_index,source_column=genome_accession_number,secondary_idx_cf=a'
+alter 'genome', METHOD => 'table_att', 'coprocessor'=>'/usr/hdp/2.5.0.0-1245/hbase/lib/hbase-data-rippler-0.2.1.jar|com.nzcorp.hbase.data_rippler.DownstreamDataRippler|10|destination_table=assembly,secondary_index_table=assembly_genome_index,source_column_family=e,target_column_family=eg'
+enable 'assembly'
+enable 'genome'
+put 'assembly', 'EFB1', 'e:genome_accession_number', 'EFG1'
+put 'assembly', 'EFB2', 'e:genome_accession_number', 'EFG1'
+put 'genome', 'EFG1', 'e:accession_number', 'EFG1'
+
