@@ -84,7 +84,6 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 return;
             }
 
-            Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
             //Cell cell = list_of_cells.get(0);
             LOGGER.info("Found "+Integer.toString(list_of_cells.size())+" cells in Put");
 
@@ -96,43 +95,43 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
                 LOGGER.trace(String.format("Found rowkey: %s", new String(rowKey)));
 
-                Scan scan = new Scan();
-                byte[] filter = Bytes.add(rowKey, "+".getBytes());
-                scan.setFilter(new PrefixFilter(filter));
-                ResultScanner resultScanner = secTable.getScanner(scan);
-                List<String> assemblyKeys = getTargetRowkeys(resultScanner);
-
-                LOGGER.trace("Got " + Integer.toString(assemblyKeys.size()) + " assemblykeys from " + new String(rowKey) + " prefix");
+                List<byte[]> targetRowkeys = getTargetRowkeys(rowKey);
+                LOGGER.trace("Got " + Integer.toString(targetRowkeys.size()) + " assemblykeys from " + new String(rowKey) + " prefix");
                 // get table object
                 table = conn.getTable(TableName.valueOf(destinationTable));
-                for (String assemblyKey : assemblyKeys) {
-                    LOGGER.trace("Put'ing into " + destinationTable + ": " + assemblyKey);
-                    Put targetData = new Put(Bytes.toBytes(assemblyKey)).addColumn(family, qualifier, value);
+                for (byte[] targetKey : targetRowkeys) {
+                    LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
+                    Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
                     LOGGER.trace(String.format("Will insert %s:%s = %s", new String(family), new String(qualifier), new String(value)));
                     table.put(targetData);
                 }
             }
-            table.close();
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
-	    table.close();
+            if( table != null ) {
+                table.close();
+            }
             throw new IllegalArgumentException(ex);
         }
 
     }
 
-    private List<String> getTargetRowkeys(ResultScanner resultScanner) {
-        List<String> assemblyKeys = new ArrayList<String>();
-        // get assembly rowkey from the secondary index
-        for (Result result : resultScanner) {
-            byte[] indexKey = result.getRow();
-            LOGGER.trace(String.format("indexKey: %s", new String(indexKey)));
-            String[] bits = new String(indexKey).split("\\+");
-            LOGGER.debug(String.format("assemblyKey %s", bits[bits.length - 1]));
-            assemblyKeys.add( bits[bits.length - 1] );
+    private List<byte[]> getTargetRowkeys(byte[] rowKey) throws IOException{
+        List<byte[]> targetKeys = new ArrayList<byte[]>();
+        Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
+
+        Get getter = new Get(rowKey);
+        Result result = secTable.get(getter);
+        List<Cell> cellList = result.listCells();
+
+        for( Cell ccell: cellList )
+        {
+            LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(ccell))));
+            targetKeys.add(CellUtil.cloneQualifier(ccell));
         }
-        return assemblyKeys;
+        secTable.close();
+        return targetKeys;
     }
 
     @Override
