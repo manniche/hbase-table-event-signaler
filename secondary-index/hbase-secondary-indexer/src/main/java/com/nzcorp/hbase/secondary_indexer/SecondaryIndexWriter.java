@@ -25,8 +25,9 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
 
     private Connection conn;
     private String destinationTable;
+    private String secCF;
     private String sourceColumn;
-    private static final Log LOGGER = LogFactory.getLog(BaseRegionObserver.class);
+    private static final Log LOGGER = LogFactory.getLog(SecondaryIndexWriter.class);
 
 
     @Override
@@ -52,8 +53,10 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
             throw new IOException( err, ioe);
         }
 
+        secCF = env.getConfiguration().get("secondary_idx_cf");
         sourceColumn = env.getConfiguration().get("source_column");
 	    LOGGER.info("Initializing secondary indexer with destination table "+destinationTable+" and looking for "+sourceColumn);
+        LOGGER.info("Will append to key in secondary index with column family "+secCF);
     }
 
     @Override
@@ -76,16 +79,23 @@ public class SecondaryIndexWriter extends BaseRegionObserver {
 
             byte[] sourceKey = put.getRow();
 
-            ByteBuffer bb = ByteBuffer.allocate(sourceValue.length+1+sourceKey.length);
-            bb.put( sourceValue );
-            bb.put( "+".getBytes() );
-            bb.put( sourceKey );
+            LOGGER.debug( String.format( "Upserting key %s with value %s", sourceValue, secCF + new String( sourceKey ) ));
+            /* Create new rowkey if none exists or append to the existing rowkey, possibly overwriting the values that
+             * previously were there
+             */
 
-            byte[] finalKey = bb.array();
-
-            Put targetData = new Put(finalKey);
-            targetData.addColumn("d".getBytes(), "".getBytes(), "".getBytes());
-            secTable.put(targetData);
+            Get tester = new Get( sourceValue );
+            if( secTable.exists( tester ) )
+            {
+                Append append = new Append( sourceValue );
+                append.add( secCF.getBytes(), sourceKey, "".getBytes() );
+                secTable.append( append );
+            } else
+            {
+                Put newVal = new Put( sourceValue );
+                newVal.addColumn( secCF.getBytes(), sourceKey, "".getBytes() );
+                secTable.put( newVal );
+            }
 
             secTable.close();
 
