@@ -4,7 +4,7 @@
   <groupId>com.nzcorp.hbase.data-rippler</groupId>
   <artifactId>hbase-data-rippler</artifactId>
   <packaging>jar</packaging>
-  <version>0.1.1</version>
+  <version>0.2.1</version>
   <name>hbase-data-rippler</name>
   <url>http://gitlab.nzcorp.net/bbd</url>
   <properties>
