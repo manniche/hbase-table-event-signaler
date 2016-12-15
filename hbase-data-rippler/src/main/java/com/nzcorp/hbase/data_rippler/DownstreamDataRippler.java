@@ -10,9 +10,13 @@ import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
+import org.apache.hadoop.hbase.filter.PrefixFilter;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
+import org.apache.hadoop.hbase.util.Bytes;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,13 +24,29 @@ import java.util.List;
 @SuppressWarnings("unused")
 public class DownstreamDataRippler extends BaseRegionObserver {
 
-    private Connection conn;
-    private String destinationTable;
-    private String secondaryIndexColumnFamily;
-    private String secondaryIndexTable;
-    private String sourceCf;
-    private String targetCf;
     private static final Log LOGGER = LogFactory.getLog(DownstreamDataRippler.class);
+    private Connection conn;
+    /**
+     * The table into which the values from the current table should be written into
+     */
+    private String destinationTable;
+    /**
+     * The table from which the child table rowkeys should be retrieved from
+     */ 
+    private String secondaryIndexTable;
+    /**
+     * The column family name to use in the destination table
+     */
+    private String targetCf;
+    /**
+     * The column family name from which to collect values from
+     */
+    private String sourceCF;
+    /**
+     * Whether to write a ridiculously amount of logging information
+     * Use with caution
+     */ 
+    private boolean f_debug;
 
 
     @Override
@@ -48,7 +68,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             conn.getTable(TableName.valueOf(destinationTable));
         } catch ( IOException ioe ){
             String err = "Table "+destinationTable+" does not exist";
-            LOGGER.error(err, ioe);
+            LOGGER.fatal(err, ioe);
             throw new IOException( err, ioe);
         }
 
@@ -58,12 +78,15 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
 
         // the column family name to take all values from
-        sourceCf = env.getConfiguration().get("source_column_family");
+        sourceCF = env.getConfiguration().get("source_column_family");
 
         // the column family name to put values into in the destinationTable
         targetCf = env.getConfiguration().get("target_column_family");
 
-        LOGGER.info("Initializing data rippler copying values from column family "+sourceCf+" to "+destinationTable+":"+targetCf );
+        //option to run *expensive* debugging
+        f_debug = Boolean.parseBoolean( env.getConfiguration().get("full_debug"));
+
+        LOGGER.info("Initializing data rippler copying values from column family "+ sourceCF +" to "+destinationTable+":"+targetCf );
         LOGGER.info("Using secondary index "+secondaryIndexTable);
 
     }
@@ -77,14 +100,38 @@ public class DownstreamDataRippler extends BaseRegionObserver {
     {
 	Table table = null;
         try {
-	    final ArrayList<Cell> list_of_cells = edit.getCells();
-	    
+            long startTime = System.nanoTime();
+            long lapTime = 0L;
+
+            /**
+             * The Mutation.getCellList is the method we need, as we want to get all qualifiers of a given column family
+             * Unfortunately, the method is package-private, and we only have access to the subclass `Put` here, so we
+             * access the method by using the Reflection API. Please note that this is a last resort tactic and that we
+             * will try to argue with the HBase projects, that there is a use case for exposing this method in the
+             * public API. As `Mutation::getCellList` is not in the public API, the method could disappear without
+             * deprectation warnings (or warnings at all). It will be in 2.0.0, as far as we know.
+             */
+            final Method meth = Mutation.class.getDeclaredMethod("getCellList", byte[].class);
+            meth.setAccessible(true);
+            final List<Cell> list_of_cells = (List<Cell>) meth.invoke(put, sourceCF.getBytes());
+
             if (list_of_cells.isEmpty()) {
+                LOGGER.info("No cells in this transaction");
                 return;
             }
 
-            //Cell cell = list_of_cells.get(0);
             LOGGER.info("Found "+Integer.toString(list_of_cells.size())+" cells in Put");
+
+            if( f_debug )
+            {
+                for (Cell cell: list_of_cells) {
+                    final byte[] rowKey = CellUtil.cloneRow(cell);
+                    LOGGER.info(String.format("Found rowkey: %s", new String(rowKey)));
+                }
+            }
+
+            table = conn.getTable(TableName.valueOf(destinationTable));
+            Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
 
             for (Cell cell: list_of_cells) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
@@ -94,17 +141,25 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
                 LOGGER.trace(String.format("Found rowkey: %s", new String(rowKey)));
 
-                List<byte[]> targetRowkeys = getTargetRowkeys(rowKey, secondaryIndexColumnFamily);
-                LOGGER.trace("Got " + Integer.toString(targetRowkeys.size()) + " assemblykeys from " + new String(rowKey) + " prefix");
-                // get table object
-                table = conn.getTable(TableName.valueOf(destinationTable));
+                List<byte[]> targetRowkeys = getTargetRowkeys(rowKey, secTable);
+                lapTime = (System.nanoTime() - startTime)/1000000;
+                LOGGER.info( String.format( "Exiting postPut, took %d%n milliseconds", lapTime ));
+
+                LOGGER.info( String.format( "Got %s targetKeys for rowKey %s in %d ms from start", targetRowkeys.size(), new String(rowKey), lapTime));
+
                 for (byte[] targetKey : targetRowkeys) {
                     LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
                     Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
                     LOGGER.trace(String.format("Will insert %s:%s = %s", new String(family), new String(qualifier), new String(value)));
                     table.put(targetData);
                 }
+                lapTime = (System.nanoTime() - startTime)/1000000;
+		LOGGER.info( String.format( "Wrote %s items to %s in %n%d" ) );
             }
+
+            long endTime = System.nanoTime();
+            long elapsedTime = (endTime - startTime)/1000000;
+            LOGGER.info( String.format( "Exiting postPut, took %d ms from start", elapsedTime ));
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
@@ -112,26 +167,32 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 table.close();
             }
             throw new IllegalArgumentException(ex);
+        } catch (NoSuchMethodException e) {
+            LOGGER.error("In trying to acquire reference to the Mutation::getCellList, an error occurred", e);
+        } catch (IllegalAccessException e) {
+            LOGGER.error("In trying to assign the reference to the Mutation::getCellList to a variable, an error occurred", e);
+        } catch (InvocationTargetException e) {
+            LOGGER.error("In trying to invoke the Mutation::getCellList, an error occurred", e);
         }
 
     }
 
-    private List<byte[]> getTargetRowkeys(byte[] rowKey, String secondaryIndexColumnFamily) throws IOException{
+    private List<byte[]> getTargetRowkeys(byte[] rowKey, Table secTable) throws IOException{
+        Scan scan = new Scan();
+        byte[] filter = Bytes.add(rowKey, "+".getBytes());
+        scan.setFilter(new PrefixFilter(filter));
+        ResultScanner resultScanner = secTable.getScanner(scan);
+
         List<byte[]> targetKeys = new ArrayList<byte[]>();
-        Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
-
-        Get getter = new Get(rowKey);
-        Result result = secTable.get(getter);
-        List<Cell> cellList = result.listCells();
-
-        for( Cell ccell: cellList )
-        {
-            if( new String( CellUtil.cloneFamily( ccell ) ).equals( secondaryIndexColumnFamily ) ){
-                LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(ccell))));
-                targetKeys.add(CellUtil.cloneQualifier(ccell));
-            }
+        // get assembly rowkey from the secondary index
+        for (Result result : resultScanner) {
+            byte[] indexKey = result.getRow();
+            LOGGER.trace(String.format("indexKey: %s", new String(indexKey)));
+            String[] bits = new String(indexKey).split("\\+");
+            LOGGER.debug(String.format("assemblyKey %s", bits[bits.length - 1]));
+            targetKeys.add(bits[bits.length - 1].getBytes());
         }
-        secTable.close();
+
         return targetKeys;
     }
 
