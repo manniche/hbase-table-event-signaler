@@ -72,8 +72,6 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             throw new IOException( err, ioe);
         }
 
-        secondaryIndexColumnFamily = env.getConfiguration().get("index_column_family");
-
         // the column family name to take all values from
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
 
@@ -139,13 +137,12 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 final byte[] qualifier = CellUtil.cloneQualifier(cell);
                 final byte[] value = CellUtil.cloneValue(cell);
 
-                LOGGER.trace(String.format("Found rowkey: %s", new String(rowKey)));
+                LOGGER.debug(String.format("Found rowkey: %s", new String(rowKey)));
 
                 List<byte[]> targetRowkeys = getTargetRowkeys(rowKey, secTable);
                 lapTime = (System.nanoTime() - startTime)/1000000;
-                LOGGER.info( String.format( "Exiting postPut, took %d%n milliseconds", lapTime ));
 
-                LOGGER.info( String.format( "Got %s targetKeys for rowKey %s in %d ms from start", targetRowkeys.size(), new String(rowKey), lapTime));
+                LOGGER.debug( String.format( "Got %s targetKeys for rowKey %s in %d ms from start", targetRowkeys.size(), new String(rowKey), lapTime));
 
                 for (byte[] targetKey : targetRowkeys) {
                     LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
@@ -154,7 +151,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                     table.put(targetData);
                 }
                 lapTime = (System.nanoTime() - startTime)/1000000;
-		LOGGER.info( String.format( "Wrote %s items to %s in %n%d" ) );
+		LOGGER.info( String.format( "Wrote %s items to %s in %d ms", targetRowkeys.size(), new String(destinationTable), lapTime ) );
             }
 
             long endTime = System.nanoTime();
@@ -187,7 +184,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         // get assembly rowkey from the secondary index
         for (Result result : resultScanner) {
             byte[] indexKey = result.getRow();
-            LOGGER.trace(String.format("indexKey: %s", new String(indexKey)));
+            LOGGER.trace(String.format("RowKey: %s", new String(indexKey)));
             String[] bits = new String(indexKey).split("\\+");
             LOGGER.debug(String.format("assemblyKey %s", bits[bits.length - 1]));
             targetKeys.add(bits[bits.length - 1].getBytes());
