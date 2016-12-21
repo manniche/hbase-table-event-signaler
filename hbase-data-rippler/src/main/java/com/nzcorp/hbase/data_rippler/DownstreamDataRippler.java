@@ -1,5 +1,4 @@
 package com.nzcorp.hbase.data_rippler;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
@@ -19,12 +18,17 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.HashMap;
 
 //remember to add the hbase dependencies to the pom file
 @SuppressWarnings("unused")
 public class DownstreamDataRippler extends BaseRegionObserver {
-
     private static final Log LOGGER = LogFactory.getLog(DownstreamDataRippler.class);
+    /**
+     * Connection to HBase
+     */
     private Connection conn;
     /**
      * The table into which the values from the current table should be written into
@@ -47,6 +51,8 @@ public class DownstreamDataRippler extends BaseRegionObserver {
      * Use with caution
      */ 
     private boolean f_debug;
+
+    private static final double NANOS_TO_SECS = 1000000000.0;
 
 
     @Override
@@ -99,7 +105,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 	Table table = null;
         try {
             long startTime = System.nanoTime();
-            long lapTime = 0L;
+            double lapTime;
 
             /**
              * The Mutation.getCellList is the method we need, as we want to get all qualifiers of a given column family
@@ -107,7 +113,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
              * access the method by using the Reflection API. Please note that this is a last resort tactic and that we
              * will try to argue with the HBase projects, that there is a use case for exposing this method in the
              * public API. As `Mutation::getCellList` is not in the public API, the method could disappear without
-             * deprectation warnings (or warnings at all). It will be in 2.0.0, as far as we know.
+             * deprecation warnings (or warnings at all). It will be in 2.0.0, as far as we know.
              */
             final Method meth = Mutation.class.getDeclaredMethod("getCellList", byte[].class);
             meth.setAccessible(true);
@@ -117,8 +123,12 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 LOGGER.info("No cells in this transaction");
                 return;
             }
-
             LOGGER.info("Found "+Integer.toString(list_of_cells.size())+" cells in Put");
+
+
+
+            final Map<String, List<byte[]>> keysCache = new HashMap<String, List<byte[]>>();
+
 
             if( f_debug )
             {
@@ -129,7 +139,6 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             }
 
             table = conn.getTable(TableName.valueOf(destinationTable));
-            Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
 
             for (Cell cell: list_of_cells) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
@@ -137,26 +146,41 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 final byte[] qualifier = CellUtil.cloneQualifier(cell);
                 final byte[] value = CellUtil.cloneValue(cell);
 
-                LOGGER.debug(String.format("Found rowkey: %s", new String(rowKey)));
+		if( ! keysCache.containsKey(new String(rowKey) )) {
+		    lapTime = (double)(System.nanoTime())/ NANOS_TO_SECS;
 
-                List<byte[]> targetRowkeys = getTargetRowkeys(rowKey, secTable);
-                lapTime = (System.nanoTime() - startTime)/1000000;
+                    LOGGER.info(String.format("building cache for %s", new String(rowKey)));
+		    Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
+		    keysCache.put(new String(rowKey), getTargetRowkeys(rowKey, secTable));
+		    secTable.close();
 
-                LOGGER.debug( String.format( "Got %s targetKeys for rowKey %s in %d ms from start", targetRowkeys.size(), new String(rowKey), lapTime));
+		    lapTime = (double)(System.nanoTime() - startTime)/ NANOS_TO_SECS;
+		    LOGGER.info( String.format( "Built cache in %f seconds", lapTime));
+		}
 
+		
+                LOGGER.debug(String.format("Looking up rowkey: %s", new String(rowKey)));
+
+                List<byte[]> targetRowkeys = keysCache.get(new String(rowKey));
+                lapTime = (double)(System.nanoTime() - startTime)/ NANOS_TO_SECS;
+
+		if( targetRowkeys == null )
+		{
+		    LOGGER.warn( "No target keys found for rowkey "+new String( rowKey ));
+		}	
                 for (byte[] targetKey : targetRowkeys) {
                     LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
                     Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
                     LOGGER.trace(String.format("Will insert %s:%s = %s", new String(family), new String(qualifier), new String(value)));
                     table.put(targetData);
                 }
-                lapTime = (System.nanoTime() - startTime)/1000000;
-		LOGGER.info( String.format( "Wrote %s items to %s in %d ms", targetRowkeys.size(), new String(destinationTable), lapTime ) );
+                lapTime = (double)(System.nanoTime() - startTime)/ NANOS_TO_SECS;
+                LOGGER.info( String.format( "Wrote %s items to %s in %f seconds", targetRowkeys.size(), destinationTable, lapTime ) );
             }
 
             long endTime = System.nanoTime();
-            long elapsedTime = (endTime - startTime)/1000000;
-            LOGGER.info( String.format( "Exiting postPut, took %d ms from start", elapsedTime ));
+            double elapsedTime = (double)(endTime - startTime)/ NANOS_TO_SECS;
+            LOGGER.info( String.format( "Exiting postPut, took %f seconds from start", elapsedTime ));
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
@@ -184,7 +208,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         // get assembly rowkey from the secondary index
         for (Result result : resultScanner) {
             byte[] indexKey = result.getRow();
-            LOGGER.trace(String.format("RowKey: %s", new String(indexKey)));
+            LOGGER.debug(String.format("RowKey: %s", new String(indexKey)));
             String[] bits = new String(indexKey).split("\\+");
             LOGGER.debug(String.format("assemblyKey %s", bits[bits.length - 1]));
             targetKeys.add(bits[bits.length - 1].getBytes());
