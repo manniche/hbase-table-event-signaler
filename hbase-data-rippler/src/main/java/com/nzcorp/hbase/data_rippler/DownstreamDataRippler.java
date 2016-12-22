@@ -1,4 +1,5 @@
 package com.nzcorp.hbase.data_rippler;
+
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
@@ -36,7 +37,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
     private String destinationTable;
     /**
      * The table from which the child table rowkeys should be retrieved from
-     */ 
+     */
     private String secondaryIndexTable;
     /**
      * The column family name to use in the destination table
@@ -49,7 +50,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
     /**
      * Whether to write a ridiculously amount of logging information
      * Use with caution
-     */ 
+     */
     private boolean f_debug;
 
     private static final double NANOS_TO_SECS = 1000000000.0;
@@ -66,16 +67,16 @@ public class DownstreamDataRippler extends BaseRegionObserver {
          * the above configuration element
          */
 
-        conn = ConnectionFactory.createConnection( env.getConfiguration() );
+        conn = ConnectionFactory.createConnection(env.getConfiguration());
 
         destinationTable = env.getConfiguration().get("destination_table");
-        LOGGER.info( String.format( "Using destination table %s", destinationTable ));
+        LOGGER.info(String.format("Using destination table %s", destinationTable));
         try {
             conn.getTable(TableName.valueOf(destinationTable));
-        } catch ( IOException ioe ){
-            String err = "Table "+destinationTable+" does not exist";
+        } catch (IOException ioe) {
+            String err = "Table " + destinationTable + " does not exist";
             LOGGER.fatal(err, ioe);
-            throw new IOException( err, ioe);
+            throw new IOException(err, ioe);
         }
 
         // the column family name to take all values from
@@ -88,10 +89,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         targetCf = env.getConfiguration().get("target_column_family");
 
         //option to run *expensive* debugging
-        f_debug = Boolean.parseBoolean( env.getConfiguration().get("full_debug"));
+        f_debug = Boolean.parseBoolean(env.getConfiguration().get("full_debug"));
 
-        LOGGER.info("Initializing data rippler copying values from column family "+ sourceCF +" to "+destinationTable+":"+targetCf );
-        LOGGER.info("Using secondary index "+secondaryIndexTable);
+        LOGGER.info("Initializing data rippler copying values from column family " + sourceCF + " to " + destinationTable + ":" + targetCf);
+        LOGGER.info("Using secondary index " + secondaryIndexTable);
 
     }
 
@@ -100,9 +101,8 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                         final Put put,
                         final WALEdit edit,
                         final Durability durability_enum)
-            throws IOException
-    {
-	Table table = null;
+            throws IOException {
+        Table table = null;
         try {
             long startTime = System.nanoTime();
             double lapTime;
@@ -123,16 +123,14 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 LOGGER.info("No cells in this transaction");
                 return;
             }
-            LOGGER.info("Found "+Integer.toString(list_of_cells.size())+" cells in Put");
-
+            LOGGER.debug("Found " + Integer.toString(list_of_cells.size()) + " cells in Put");
 
 
             final Map<String, List<byte[]>> keysCache = new HashMap<String, List<byte[]>>();
 
 
-            if( f_debug )
-            {
-                for (Cell cell: list_of_cells) {
+            if (f_debug) {
+                for (Cell cell : list_of_cells) {
                     final byte[] rowKey = CellUtil.cloneRow(cell);
                     LOGGER.info(String.format("Found rowkey: %s", new String(rowKey)));
                 }
@@ -140,29 +138,28 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
             table = conn.getTable(TableName.valueOf(destinationTable));
 
-            for (Cell cell: list_of_cells) {
+            for (Cell cell : list_of_cells) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
                 final byte[] family = targetCf.getBytes();
                 final byte[] qualifier = CellUtil.cloneQualifier(cell);
                 final byte[] value = CellUtil.cloneValue(cell);
 
-		if( ! keysCache.containsKey(new String(rowKey) )) {
-		    lapTime = (double)(System.nanoTime())/ NANOS_TO_SECS;
+                if (!keysCache.containsKey(new String(rowKey))) {
+                    lapTime = (double) (System.nanoTime()) / NANOS_TO_SECS;
 
                     LOGGER.info(String.format("building cache for %s", new String(rowKey)));
-		    Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
-		    keysCache.put(new String(rowKey), getTargetRowkeys(rowKey, secTable));
-		    secTable.close();
+                    Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
+                    keysCache.put(new String(rowKey), getTargetRowkeys(rowKey, secTable));
+                    secTable.close();
 
-		    lapTime = (double)(System.nanoTime() - startTime)/ NANOS_TO_SECS;
-		    LOGGER.info( String.format( "Built cache in %f seconds", lapTime));
-		}
+                    lapTime = (System.nanoTime() / NANOS_TO_SECS) - lapTime;
+                    LOGGER.info(String.format("Built cache in %f seconds", lapTime));
+                }
 
-		
+
                 LOGGER.debug(String.format("Looking up rowkey: %s", new String(rowKey)));
 
                 List<byte[]> targetRowkeys = keysCache.get(new String(rowKey));
-                lapTime = (double)(System.nanoTime() - startTime)/ NANOS_TO_SECS;
 
 		if( targetRowkeys == null )
 		{
@@ -174,17 +171,15 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                     LOGGER.trace(String.format("Will insert %s:%s = %s", new String(family), new String(qualifier), new String(value)));
                     table.put(targetData);
                 }
-                lapTime = (double)(System.nanoTime() - startTime)/ NANOS_TO_SECS;
-                LOGGER.info( String.format( "Wrote %s items to %s in %f seconds", targetRowkeys.size(), destinationTable, lapTime ) );
             }
 
             long endTime = System.nanoTime();
-            double elapsedTime = (double)(endTime - startTime)/ NANOS_TO_SECS;
-            LOGGER.info( String.format( "Exiting postPut, took %f seconds from start", elapsedTime ));
+            double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
+            LOGGER.info(String.format("Exiting postPut, took %f seconds from start", elapsedTime));
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
-            if( table != null ) {
+            if (table != null) {
                 table.close();
             }
             throw new IllegalArgumentException(ex);
@@ -198,7 +193,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
     }
 
-    private List<byte[]> getTargetRowkeys(byte[] rowKey, Table secTable) throws IOException{
+    private List<byte[]> getTargetRowkeys(byte[] rowKey, Table secTable) throws IOException {
         Scan scan = new Scan();
         byte[] filter = Bytes.add(rowKey, "+".getBytes());
         scan.setFilter(new PrefixFilter(filter));
