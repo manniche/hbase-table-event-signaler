@@ -107,6 +107,8 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             long startTime = System.nanoTime();
             double lapTime;
 
+            final String sourceTable = observerContext.getEnvironment().getRegionInfo().getTable().getNameAsString();
+
             /**
              * The Mutation.getCellList is the method we need, as we want to get all qualifiers of a given column family
              * Unfortunately, the method is package-private, and we only have access to the subclass `Put` here, so we
@@ -161,15 +163,25 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
                 List<byte[]> targetRowkeys = keysCache.get(new String(rowKey));
 
-		if( targetRowkeys == null )
-		{
-		    LOGGER.warn( "No target keys found for rowkey "+new String( rowKey ));
-		}	
-                for (byte[] targetKey : targetRowkeys) {
-                    LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
-                    Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
-                    LOGGER.trace(String.format("Will insert %s:%s = %s", new String(family), new String(qualifier), new String(value)));
-                    table.put(targetData);
+                if (targetRowkeys == null || targetRowkeys.size() == 0) {
+                    LOGGER.warn("No target keys found for rowkey " + new String(rowKey));
+                }else {
+                    LOGGER.info(String.format("Found %s targetKeys", targetRowkeys.size()));
+                    for (byte[] targetKey : targetRowkeys) {
+                        LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
+                        Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
+                        LOGGER.info(String.format("Inserting from '%s', '%s' %s ==> '%s', '%s'  %s:%s",
+                                sourceTable,
+                                new String(rowKey),
+                                sourceCF,
+                                destinationTable,
+                                new String(targetKey),
+                                new String(family),
+                                new String(qualifier)));
+                        table.put(targetData);
+                    }
+                    lapTime = (double) (System.nanoTime() - startTime) / NANOS_TO_SECS;
+                    LOGGER.info(String.format("Wrote %s items to %s in %f seconds from start", targetRowkeys.size(), destinationTable, lapTime));
                 }
             }
 
@@ -205,7 +217,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             byte[] indexKey = result.getRow();
             LOGGER.debug(String.format("RowKey: %s", new String(indexKey)));
             String[] bits = new String(indexKey).split("\\+");
-            LOGGER.debug(String.format("assemblyKey %s", bits[bits.length - 1]));
+            LOGGER.debug(String.format("targetKey %s", bits[bits.length - 1]));
             targetKeys.add(bits[bits.length - 1].getBytes());
         }
 
