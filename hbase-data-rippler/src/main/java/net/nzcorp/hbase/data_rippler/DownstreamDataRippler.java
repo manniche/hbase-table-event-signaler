@@ -1,4 +1,4 @@
-package com.nzcorp.hbase.data_rippler;
+package net.nzcorp.hbase.data_rippler;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -19,7 +19,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.HashMap;
 
