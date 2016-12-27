@@ -102,6 +102,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                         final Durability durability_enum)
             throws IOException {
         Table table = null;
+        Table secTable = null;
         try {
             long startTime = System.nanoTime();
             double lapTime;
@@ -138,6 +139,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             }
 
             table = conn.getTable(TableName.valueOf(destinationTable));
+            secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
 
             for (Cell cell : list_of_cells) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
@@ -149,10 +151,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                     lapTime = (double) (System.nanoTime()) / NANOS_TO_SECS;
 
                     LOGGER.info(String.format("building cache for %s", new String(rowKey)));
-                    Table secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
                     keysCache.put(new String(rowKey), getTargetRowkeys(rowKey, secTable));
-                    secTable.close();
-
                     lapTime = (System.nanoTime() / NANOS_TO_SECS) - lapTime;
                     LOGGER.info(String.format("Built cache in %f seconds", lapTime));
                 }
@@ -183,6 +182,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                     LOGGER.info(String.format("Wrote %s items to %s in %f seconds from start", targetRowkeys.size(), destinationTable, lapTime));
                 }
             }
+            secTable.close();
 
             long endTime = System.nanoTime();
             double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
@@ -190,9 +190,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
-            if (table != null) {
-                table.close();
-            }
+
             throw new IllegalArgumentException(ex);
         } catch (NoSuchMethodException e) {
             LOGGER.error("In trying to acquire reference to the Mutation::getCellList, an error occurred", e);
@@ -200,26 +198,30 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             LOGGER.error("In trying to assign the reference to the Mutation::getCellList to a variable, an error occurred", e);
         } catch (InvocationTargetException e) {
             LOGGER.error("In trying to invoke the Mutation::getCellList, an error occurred", e);
+        } finally {
+            /**
+             * Clean up resources that may have been left open
+             */
+            if (table != null) {
+                table.close();
+            }
+            if (secTable != null) {
+                secTable.close();
+            }
         }
-
     }
 
     private List<byte[]> getTargetRowkeys(byte[] rowKey, Table secTable) throws IOException {
-        Scan scan = new Scan();
-        byte[] filter = Bytes.add(rowKey, "+".getBytes());
-        scan.setFilter(new PrefixFilter(filter));
-        ResultScanner resultScanner = secTable.getScanner(scan);
 
         List<byte[]> targetKeys = new ArrayList<byte[]>();
-        // get assembly rowkey from the secondary index
-        for (Result result : resultScanner) {
-            byte[] indexKey = result.getRow();
-            LOGGER.debug(String.format("RowKey: %s", new String(indexKey)));
-            String[] bits = new String(indexKey).split("\\+");
-            LOGGER.debug(String.format("targetKey %s", bits[bits.length - 1]));
-            targetKeys.add(bits[bits.length - 1].getBytes());
-        }
+        Result result = secTable.get(new Get(rowKey));
+        List<Cell> cellList = result.listCells();
 
+        for( Cell cell: cellList )
+        {
+            LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(cell))));
+            targetKeys.add(CellUtil.cloneQualifier(cell));
+        }
         return targetKeys;
     }
 
