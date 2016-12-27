@@ -17,10 +17,7 @@ import org.apache.hadoop.hbase.util.Bytes;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.HashMap;
+import java.util.*;
 
 //remember to add the hbase dependencies to the pom file
 @SuppressWarnings("unused")
@@ -38,6 +35,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
      * The table from which the child table rowkeys should be retrieved from
      */
     private String secondaryIndexTable;
+    /**
+     * The column family to find target keys for in the secondary index
+     */
+    private String secondaryIndexCF;
     /**
      * The column family name to use in the destination table
      */
@@ -81,6 +82,11 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         // the column family name to take all values from
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
 
+        secondaryIndexCF = env.getConfiguration().get("secondary_index_cf");
+        if(secondaryIndexCF == null) {
+            LOGGER.fatal("No 'secondary_index_cf' specified, cannot continue. Please set secondary_index_cf=some_sensible_value for the coprocessor");
+        }
+
         // the column family name to take all values from
         sourceCF = env.getConfiguration().get("source_column_family");
 
@@ -91,7 +97,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         f_debug = Boolean.parseBoolean(env.getConfiguration().get("full_debug"));
 
         LOGGER.info("Initializing data rippler copying values from column family " + sourceCF + " to " + destinationTable + ":" + targetCf);
-        LOGGER.info("Using secondary index " + secondaryIndexTable);
+        LOGGER.info("Using secondary index " + secondaryIndexTable + ", column family: "+ secondaryIndexCF);
 
     }
 
@@ -219,8 +225,11 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
         for( Cell cell: cellList )
         {
-            LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(cell))));
-            targetKeys.add(CellUtil.cloneQualifier(cell));
+            byte[] cf = CellUtil.cloneFamily(cell);
+            if (Arrays.equals( cf, secondaryIndexCF.getBytes())) {
+                LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(cell))));
+                targetKeys.add(CellUtil.cloneQualifier(cell));
+            }
         }
         return targetKeys;
     }
