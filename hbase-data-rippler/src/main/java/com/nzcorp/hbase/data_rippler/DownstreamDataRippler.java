@@ -1,4 +1,4 @@
-package net.nzcorp.hbase.data_rippler;
+package com.nzcorp.hbase.data_rippler;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
