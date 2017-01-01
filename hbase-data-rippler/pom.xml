@@ -4,11 +4,12 @@
   <groupId>com.nzcorp.hbase.data-rippler</groupId>
   <artifactId>hbase-data-rippler</artifactId>
   <packaging>jar</packaging>
-  <version>0.4.0</version>
+  <version>0.4.1</version>
   <name>hbase-data-rippler</name>
   <url>http://gitlab.nzcorp.net/bts/bbd</url>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <hbase.version>1.1.2</hbase.version>
   </properties>
   <build>
     <plugins>
@@ -27,8 +28,13 @@
     <dependency>
       <groupId>org.apache.hbase</groupId>
       <artifactId>hbase-server</artifactId>
-      <version>1.1.2</version>
+      <version>${hbase.version}</version>
     </dependency>
+      <dependency>
+          <groupId>org.apache.hbase</groupId>
+          <artifactId>hbase-testing-util</artifactId>
+          <version>${hbase.version}</version>
+      </dependency>
   </dependencies>
 </project>
 
