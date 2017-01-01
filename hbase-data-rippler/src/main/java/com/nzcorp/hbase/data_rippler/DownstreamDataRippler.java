@@ -223,15 +223,18 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         Result result = secTable.get(new Get(rowKey));
         List<Cell> cellList = result.listCells();
 
-        for( Cell cell: cellList )
-        {
-            byte[] cf = CellUtil.cloneFamily(cell);
-            if (Arrays.equals( cf, secondaryIndexCF.getBytes())) {
-                LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(cell))));
-                targetKeys.add(CellUtil.cloneQualifier(cell));
-            }
-        }
-        return targetKeys;
+	if( cellList != null && cellList.size() > 0 ) {
+	    for( Cell cell: cellList ) {
+		byte[] cf = CellUtil.cloneFamily(cell);
+		if (Arrays.equals( cf, secondaryIndexCF.getBytes())) {
+		    LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(cell))));
+		    targetKeys.add(CellUtil.cloneQualifier(cell));
+		}
+	    }
+	} else {
+	    LOGGER.warn( String.format("Found no targetKeys for %s", new String(rowKey)));
+	}
+	    return targetKeys;
     }
 
     @Override
