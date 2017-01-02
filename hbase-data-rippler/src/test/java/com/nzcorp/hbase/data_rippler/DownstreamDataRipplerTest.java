@@ -1,8 +1,6 @@
 package com.nzcorp.hbase.data_rippler;
 
-import org.apache.avro.generic.GenericData;
 import org.apache.hadoop.hbase.*;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.log4j.Level;
@@ -10,7 +8,6 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.junit.*;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -34,8 +31,9 @@ public class DownstreamDataRipplerTest {
         List<Logger> loggers = Collections.<Logger>list(LogManager.getCurrentLoggers());
         loggers.add(LogManager.getRootLogger());
         for (Logger logger : loggers) {
-            logger.setLevel(Level.OFF);
+            logger.setLevel(Level.ERROR);
         }
+        LogManager.getLogger(DownstreamDataRippler.class).setLevel(Level.TRACE);
     }
 
     @Before
@@ -47,21 +45,27 @@ public class DownstreamDataRipplerTest {
                 CoprocessorHost.USER_REGION_COPROCESSOR_CONF_KEY,
                 DownstreamDataRippler.class.getName());
         testingUtility.getConfiguration().setStrings("destination_table", "assembly");
-	testingUtility.getConfiguration().setStrings("secondary_index_table", "genome_index");
+        testingUtility.getConfiguration().setStrings("secondary_index_table", "genome_index");
         testingUtility.getConfiguration().setStrings("source_column_family", "e");
-	testingUtility.getConfiguration().setStrings("target_column_family", "eg");
+        testingUtility.getConfiguration().setStrings("target_column_family", "eg");
         testingUtility.getConfiguration().setStrings("secondary_index_cf", "a");
-        testingUtility.startMiniCluster();
-	System.out.println("Creating genome table");
-        primaryTable = (HTable) testingUtility.createTable(primaryTableName, "e");
-	System.out.println("Creating assembly table" );
 
-	byte[][] ba = new byte[2][];
-	ba[0] = "e".getBytes();
-	ba[1] = "eg".getBytes();
+        // Get random port number
+        testingUtility.getConfiguration().setInt("hbase.regionserver.port", HBaseTestingUtility.randomFreePort());
+        testingUtility.getConfiguration().setInt("hbase.master.info.port", HBaseTestingUtility.randomFreePort());
+
+
+        testingUtility.startMiniCluster();
+        System.out.println("Creating genome table");
+        primaryTable = (HTable) testingUtility.createTable(primaryTableName, "e");
+        System.out.println("Creating assembly table" );
+
+        byte[][] ba = new byte[2][];
+        ba[0] = "e".getBytes();
+        ba[1] = "eg".getBytes();
 
         otherTable = (HTable) testingUtility.createTable(otherTableName, ba);
-	System.out.println("Creating secondary index table");
+        System.out.println("Creating secondary index table");
         secondaryIdxTable = (HTable) testingUtility.createTable(secondaryIdxTableName, "a");
     }
 
