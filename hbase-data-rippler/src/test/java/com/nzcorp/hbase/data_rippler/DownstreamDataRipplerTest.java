@@ -38,12 +38,12 @@ public class DownstreamDataRipplerTest {
 
     @Before
     public void before() throws Exception {
-	/*
-	 * Load the coprocessor on the region
-	 */
+        /*
+         * Load the coprocessor on the region
+         */
         testingUtility.getConfiguration().setStrings(
-                CoprocessorHost.USER_REGION_COPROCESSOR_CONF_KEY,
-                DownstreamDataRippler.class.getName());
+                                                     CoprocessorHost.USER_REGION_COPROCESSOR_CONF_KEY,
+                                                     DownstreamDataRippler.class.getName());
         testingUtility.getConfiguration().setStrings("destination_table", "assembly");
         testingUtility.getConfiguration().setStrings("secondary_index_table", "genome_index");
         testingUtility.getConfiguration().setStrings("source_column_family", "e");
@@ -54,7 +54,7 @@ public class DownstreamDataRipplerTest {
         testingUtility.getConfiguration().setInt("hbase.regionserver.port", HBaseTestingUtility.randomFreePort());
         testingUtility.getConfiguration().setInt("hbase.master.info.port", HBaseTestingUtility.randomFreePort());
 
-
+        // Start up the testing cluster. No mocking around here!
         testingUtility.startMiniCluster();
         System.out.println("Creating genome table");
         primaryTable = (HTable) testingUtility.createTable(primaryTableName, "e");
@@ -81,17 +81,17 @@ public class DownstreamDataRipplerTest {
     @Test
     public void postPutHappyCase() throws Exception {
 
-	//populate assembly table
-	Put assIdx = new Put("EFB1".getBytes());
-	assIdx.addColumn("e".getBytes(), "genome_accession_number".getBytes(), "EFG1".getBytes());
-	otherTable.put(assIdx);
-	otherTable.flushCommits();
+        //populate assembly table
+        Put assIdx = new Put("EFB1".getBytes());
+        assIdx.addColumn("e".getBytes(), "genome_accession_number".getBytes(), "EFG1".getBytes());
+        otherTable.put(assIdx);
+        otherTable.flushCommits();
 
-	//simulate population of secondary index as a result of the above
-	Put idxPut = new Put("EFG1".getBytes());
-	idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
-	secondaryIdxTable.put(idxPut);
-	secondaryIdxTable.flushCommits();
+        //simulate population of secondary index as a result of the above
+        Put idxPut = new Put("EFG1".getBytes());
+        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
+        secondaryIdxTable.put(idxPut);
+        secondaryIdxTable.flushCommits();
 
         Put tablePut = new Put("EFG1".getBytes());
         tablePut.addColumn( "e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
@@ -105,28 +105,28 @@ public class DownstreamDataRipplerTest {
         String ck = new String(CellUtil.cloneRow(cell));
         String cf = new String(CellUtil.cloneFamily(cell));
         String cq = new String(CellUtil.cloneQualifier(cell));
-	String vl = new String(CellUtil.cloneValue(cell));
+        String vl = new String(CellUtil.cloneValue(cell));
 
         Assert.assertEquals( "We expect the column family from the rippled table","eg", cf);
         Assert.assertEquals( "We expect the column to contain the column value from the target table", "some_key", cq);
         Assert.assertEquals( "We expect the rowkey in the rippled table to be a EFB1", "EFB1", ck);
-	Assert.assertEquals( "We expect the value in the rippled table to contain the value form the parent", "some_value", vl);
+        Assert.assertEquals( "We expect the value in the rippled table to contain the value form the parent", "some_value", vl);
     }
 
     @Test
     public void postPutGetInterpretation() throws Exception {
 
-	//populate assembly table
-	Put assIdx = new Put("EFB10L".getBytes());
-	assIdx.addColumn("e".getBytes(), "genome_accession_number".getBytes(), "EFG1".getBytes());
-	otherTable.put(assIdx);
-	otherTable.flushCommits();
+        //populate assembly table
+        Put assIdx = new Put("EFB10L".getBytes());
+        assIdx.addColumn("e".getBytes(), "genome_accession_number".getBytes(), "EFG1".getBytes());
+        otherTable.put(assIdx);
+        otherTable.flushCommits();
 
-	//simulate population of secondary index as a result of the above
-	Put idxPut = new Put("EFG1".getBytes());
-	idxPut.addColumn("a".getBytes(), "EFB10L".getBytes(), "".getBytes());
-	secondaryIdxTable.put(idxPut);
-	secondaryIdxTable.flushCommits();
+        //simulate population of secondary index as a result of the above
+        Put idxPut = new Put("EFG1".getBytes());
+        idxPut.addColumn("a".getBytes(), "EFB10L".getBytes(), "".getBytes());
+        secondaryIdxTable.put(idxPut);
+        secondaryIdxTable.flushCommits();
 
         Put tablePut = new Put("EFG1".getBytes());
         tablePut.addColumn( "e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
@@ -145,17 +145,45 @@ public class DownstreamDataRipplerTest {
         Assert.assertEquals( "We expect the rowkey in the rippled table to be the source rowkey", "EFB10L", ck);
         Assert.assertEquals( "We expect the column family from the rippled table","e", cf);
         Assert.assertEquals( "We expect the column to contain the rowkey for a target table", "genome_accession_number", cq);
-	Assert.assertEquals( "We expect the value in the rippled table to contain the value form the parent", "EFG1", vl);
+        Assert.assertEquals( "We expect the value in the rippled table to contain the value form the parent", "EFG1", vl);
 
-	cell = cells.get(1);
+        cell = cells.get(1);
         ck = new String(CellUtil.cloneRow(cell));
         cf = new String(CellUtil.cloneFamily(cell));
         cq = new String(CellUtil.cloneQualifier(cell));
-	vl = new String(CellUtil.cloneValue(cell));
+        vl = new String(CellUtil.cloneValue(cell));
 
         Assert.assertEquals( "We expect the rowkey in the rippled table to be the source rowkey", "EFB10L", ck);
         Assert.assertEquals( "We expect the column family from the rippled table","eg", cf);
         Assert.assertEquals( "We expect the column to contain the rowkey for a target table", "some_key", cq);
-	Assert.assertEquals( "We expect the value in the rippled table to contain the value form the parent", "some_value", vl);
+        Assert.assertEquals( "We expect the value in the rippled table to contain the value form the parent", "some_value", vl);
+    }
+
+    @Test
+    public void postPutTestNPEHandling() throws Exception {
+        /**
+         * This is sort of a pseudo-test in that it does not really
+         * test the SUT, but instead demonstrates the situation that
+         * led to the NPE we saw in the logs over Christmas 2016.
+         *
+         * When trying to `Get` a result on a table where there will
+         * be no result, the resulting return value will be
+         * `null`. Trying to reference a member on this will of course
+         * throw a NPE.
+         */
+
+        Put tablePut = new Put( "EFB1".getBytes() );
+        tablePut.addColumn("e".getBytes(), "genome_accession_number".getBytes(), "EFG3".getBytes());
+
+        primaryTable.put( tablePut );
+        primaryTable.flushCommits();
+
+        Get get = new Get("EFG3".getBytes());
+        Result result = primaryTable.get(get);
+        List<Cell> cells = result.listCells();
+
+        Assert.assertNull( "We should not have received any columns on EFG3", cells );
+
+
     }
 }
