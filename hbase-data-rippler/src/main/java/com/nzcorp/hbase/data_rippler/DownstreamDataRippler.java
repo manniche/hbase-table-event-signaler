@@ -140,7 +140,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             if (f_debug) {
                 for (Cell cell : list_of_cells) {
                     final byte[] rowKey = CellUtil.cloneRow(cell);
-                    LOGGER.info(String.format("Found rowkey: %s", new String(rowKey)));
+                    LOGGER.debug(String.format("Found rowkey: %s", new String(rowKey)));
                 }
             }
 
@@ -156,10 +156,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 if (!keysCache.containsKey(new String(rowKey))) {
                     lapTime = (double) (System.nanoTime()) / NANOS_TO_SECS;
 
-                    LOGGER.info(String.format("building cache for %s", new String(rowKey)));
+                    LOGGER.debug(String.format("building cache for %s", new String(rowKey)));
                     keysCache.put(new String(rowKey), getTargetRowkeys(rowKey, secTable));
                     lapTime = (System.nanoTime() / NANOS_TO_SECS) - lapTime;
-                    LOGGER.info(String.format("Built cache in %f seconds", lapTime));
+                    LOGGER.debug(String.format("Built cache in %f seconds", lapTime));
                 }
 
 
@@ -170,11 +170,11 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 if (targetRowkeys == null || targetRowkeys.size() == 0) {
                     LOGGER.warn("No target keys found for rowkey " + new String(rowKey));
                 }else {
-                    LOGGER.info(String.format("Found %s targetKeys", targetRowkeys.size()));
+                    LOGGER.debug(String.format("Found %s targetKeys", targetRowkeys.size()));
                     for (byte[] targetKey : targetRowkeys) {
                         LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
                         Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
-                        LOGGER.info(String.format("Inserting from '%s', '%s' %s ==> '%s', '%s'  %s:%s",
+                        LOGGER.trace(String.format("Inserting from '%s', '%s' %s ==> '%s', '%s'  %s:%s",
                                 sourceTable,
                                 new String(rowKey),
                                 sourceCF,
@@ -185,7 +185,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                         table.put(targetData);
                     }
                     lapTime = (double) (System.nanoTime() - startTime) / NANOS_TO_SECS;
-                    LOGGER.info(String.format("Wrote %s items to %s in %f seconds from start", targetRowkeys.size(), destinationTable, lapTime));
+                    LOGGER.debug(String.format("Wrote %s items to %s in %f seconds from start", targetRowkeys.size(), destinationTable, lapTime));
                 }
             }
             secTable.close();
@@ -227,7 +227,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 	    for( Cell cell: cellList ) {
 		byte[] cf = CellUtil.cloneFamily(cell);
 		if (Arrays.equals( cf, secondaryIndexCF.getBytes())) {
-		    LOGGER.info(String.format("got column %s", new String(CellUtil.cloneQualifier(cell))));
+		    LOGGER.debug(String.format("got column %s", new String(CellUtil.cloneQualifier(cell))));
 		    targetKeys.add(CellUtil.cloneQualifier(cell));
 		}
 	    }
