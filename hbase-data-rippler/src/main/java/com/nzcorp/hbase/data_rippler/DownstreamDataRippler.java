@@ -110,6 +110,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         Table table = null;
         Table secTable = null;
         try {
+            LOGGER.trace("Entering DDR:postPut");
             long startTime = System.nanoTime();
             double lapTime;
 
@@ -196,8 +197,11 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
+            //In order not to drop its marbles when the HBase server throws an IllegalArgumentException, we allow the
+            // coprocessor to continue operating, thereby allowing the HBase RS to continue operating.
+            // This exception is throws before the secondary index table is opened, so just move along
+            return;
 
-            throw new IllegalArgumentException(ex);
         } catch (NoSuchMethodException e) {
             LOGGER.error("In trying to acquire reference to the Mutation::getCellList, an error occurred", e);
         } catch (IllegalAccessException e) {

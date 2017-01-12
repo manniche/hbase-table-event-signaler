@@ -159,31 +159,13 @@ public class DownstreamDataRipplerTest {
         Assert.assertEquals( "We expect the value in the rippled table to contain the value form the parent", "some_value", vl);
     }
 
-    @Test
-    public void postPutTestNPEHandling() throws Exception {
+    @Test(expected = IllegalArgumentException.class)
+    public void allowEmptyRowPutIAE() throws Exception {
         /**
-         * This is sort of a pseudo-test in that it does not really
-         * test the SUT, but instead demonstrates the situation that
-         * led to the NPE we saw in the logs over Christmas 2016.
-         *
-         * When trying to `Get` a result on a table where there will
-         * be no result, the resulting return value will be
-         * `null`. Trying to reference a member on this will of course
-         * throw a NPE.
+         * Test that demonstrates that a put with an empty row-key will result in a IllegalArgumentException
+         * I was not able to involve the SUT here, since the exception originates from this test, so this test only
+         * serves as a reminder for us not to rethrow IAEs in the coprocessors
          */
-
-        Put tablePut = new Put( "EFB1".getBytes() );
-        tablePut.addColumn("e".getBytes(), "genome_accession_number".getBytes(), "EFG3".getBytes());
-
-        primaryTable.put( tablePut );
-        primaryTable.flushCommits();
-
-        Get get = new Get("EFG3".getBytes());
-        Result result = primaryTable.get(get);
-        List<Cell> cells = result.listCells();
-
-        Assert.assertNull( "We should not have received any columns on EFG3", cells );
-
-
+        primaryTable.put(new Put("".getBytes()));
     }
 }
