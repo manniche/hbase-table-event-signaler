@@ -30,16 +30,22 @@
       <artifactId>hbase-server</artifactId>
       <version>${hbase.version}</version>
     </dependency>
-      <dependency>
-          <groupId>org.apache.hbase</groupId>
-          <artifactId>hbase-testing-util</artifactId>
-          <version>${hbase.version}</version>
-      </dependency>
-      <dependency>
-          <groupId>com.rabbitmq</groupId>
-          <artifactId>amqp-client</artifactId>
-          <version>3.6.6</version>
-      </dependency>
+    <dependency>
+      <groupId>com.rabbitmq</groupId>
+      <artifactId>amqp-client</artifactId>
+      <version>3.4.4</version>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hbase</groupId>
+      <artifactId>hbase-testing-util</artifactId>
+      <version>${hbase.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-all</artifactId>
+      <version>1.10.19</version>
+    </dependency>
   </dependencies>
 </project>
 
