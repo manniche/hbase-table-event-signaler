@@ -2,6 +2,7 @@ package net.nzcorp.hbase.mq_data_rippler;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -16,39 +17,23 @@ import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 
+import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.Channel;
+
 /**
- * Writes a specified key to a secondary index in order to support join-like operations
- *
- * On the wiki page http://gitlab.nzcorp.net/bts/bbd/blob/develop/wiki/components/hbase-table-layout.md it is
- * specified that the secondary indexer on contig should be using assembly_accession_number.
- *
- * The logic in the secondary indexer is as follows (taking the si on contig as an example):
- *  1. receive Put on contig
- *  2. check that the put in on the column family e and the column qualifier assembly_accession_number
- *  3. if this is the case, insert or update the rowKey specified by assembly_accession_number on assembly_index
- *     with the value c:{the contig row key}
- *
- * After this update, the assembly_index will have a structure looking like
- *
- * row key 	| column family c |        |        | column family f | ...
- * ---------+-----------------+--------+--------+-----------------+-------
- * EFB1     | c:EFN1          | c:EFN2 | c:EFN3 | f:EFP1          | ...
- * ... 	    | ...             | ...    | ...    | ...             | ...
- *
- * This will let clients look up all contigs, features or proteins that have a specific assembly accession number. \
- * Similarly, the contig_index will allow clients to look up all features and proteins that have a specific
- * contig accession number.
- *
  *
  */
 @SuppressWarnings("unused")
 public class MQDataRippler extends BaseRegionObserver {
 
     private Connection conn;
+    private ConnectionFactory factory;
     private String destinationTable;
     private String secCF;
     private String sourceColumn;
     private static final Log LOGGER = LogFactory.getLog(net.nzcorp.hbase.mq_data_rippler.MQDataRippler.class);
+    private String mq_ip;
 
 
     @Override
@@ -64,15 +49,12 @@ public class MQDataRippler extends BaseRegionObserver {
 
         conn = ConnectionFactory.createConnection( env.getConfiguration() );
 
-        destinationTable = env.getConfiguration().get("destination_table");
+        mq_ip = env.getConfiguration().get("mq_ip");
 
-        try {
-            conn.getTable(TableName.valueOf(destinationTable));
-        } catch ( IOException ioe ){
-            String err = "Table "+destinationTable+" does not exist";
-            LOGGER.warn(err, ioe);
-            throw new IOException( err, ioe);
-        }
+        factory = new ConnectionFactory();
+        factory.setHost(mq_ip);
+        //factory.setConnectionTimeout();
+
 
         secCF = env.getConfiguration().get("secondary_idx_cf");
         sourceColumn = env.getConfiguration().get("source_column");
@@ -95,34 +77,24 @@ public class MQDataRippler extends BaseRegionObserver {
             }
             Cell sourceColumnCell = cells.get(0);
             byte[] sourceValue = CellUtil.cloneValue(sourceColumnCell);
-
-            Table secTable = conn.getTable(TableName.valueOf(destinationTable));
-
             byte[] sourceKey = put.getRow();
 
-            if(new String(sourceKey).contains(":")) {
-                sourceKey = new String(sourceKey).replace(':', '_').getBytes();
-            }
-
             if(sourceValue.length == 0) {
-                LOGGER.error(String.format("The key to write an entry in %s was empty! It came from %s={%s:%s}", secTable, new String(sourceKey),"e", sourceColumn));
+                LOGGER.error(String.format("The key to write an entry in %s was empty! It came from %s={%s:%s}", destinationTable, new String(sourceKey),"e", sourceColumn));
             } else {
                 LOGGER.info( String.format( "Upserting key %s with column value %s:%s", new String(sourceValue), secCF, new String( sourceKey ) ));
                 /* Create new rowkey if none exists or append to the existing rowkey, possibly overwriting the values
                  * that previously were there
                  */
-                Get sourceRowKey = new Get(sourceValue);
-                if (secTable.exists(sourceRowKey)) {
-                    Append append = new Append(sourceValue);
-                    append.add(secCF.getBytes(), sourceKey, "".getBytes());
-                    secTable.append(append);
-                } else {
-                    Put newVal = new Put(sourceValue);
-                    newVal.addColumn(secCF.getBytes(), sourceKey, "".getBytes());
-                    secTable.put(newVal);
-                }
             }
-            secTable.close();
+            Connection connection = null;
+            try {
+                connection = factory.newConnection();
+            } catch (TimeoutException e) {
+                LOGGER.error(String.format("Timeout while trying to connect to MQ@%s", mq_ip));
+            }
+            Channel channel = connection.createChannel();
+
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);

@@ -35,6 +35,11 @@
           <artifactId>hbase-testing-util</artifactId>
           <version>${hbase.version}</version>
       </dependency>
+      <dependency>
+          <groupId>com.rabbitmq</groupId>
+          <artifactId>amqp-client</artifactId>
+          <version>3.6.6</version>
+      </dependency>
   </dependencies>
 </project>
 
