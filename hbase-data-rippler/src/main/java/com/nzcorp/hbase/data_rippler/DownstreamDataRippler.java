@@ -8,6 +8,7 @@ import org.apache.hadoop.hbase.CoprocessorEnvironment;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
+import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.filter.PrefixFilter;
@@ -54,6 +55,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
     private boolean f_debug;
 
     private static final double NANOS_TO_SECS = 1000000000.0;
+    private String amq_address;
 
 
     @Override
@@ -68,23 +70,40 @@ public class DownstreamDataRippler extends BaseRegionObserver {
          */
 
         conn = ConnectionFactory.createConnection(env.getConfiguration());
+        Admin hbAdmin = conn.getAdmin();
 
         destinationTable = env.getConfiguration().get("destination_table");
-        LOGGER.info(String.format("Using destination table %s", destinationTable));
-        try {
-            conn.getTable(TableName.valueOf(destinationTable));
-        } catch (IOException ioe) {
-            String err = "Table " + destinationTable + " does not exist";
-            LOGGER.fatal(err, ioe);
-            throw new IOException(err, ioe);
+        if(destinationTable == null|| destinationTable.isEmpty()) {
+            String err = "No value for 'destination_table' specified, aborting coprocessor";
+            LOGGER.fatal(err);
+            throw new IllegalArgumentException(err);
         }
+        if(! hbAdmin.tableExists(TableName.valueOf(destinationTable))) {
+            String err = "Table " + destinationTable + " does not exist";
+            LOGGER.fatal(err);
+            throw new IOException(err);
+        }
+        LOGGER.info(String.format("Using destination table %s", destinationTable));
 
-        // the column family name to take all values from
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
+        if(secondaryIndexTable == null|| secondaryIndexTable.isEmpty()) {
+            String err = "No value for 'secondary_index_table' specified, aborting coprocessor";
+            LOGGER.fatal(err);
+            throw new IllegalArgumentException(err);
+        }
+        if(!hbAdmin.tableExists(TableName.valueOf(secondaryIndexTable))) {
+            String err = "Table " + secondaryIndexTable + " does not exist";
+            LOGGER.fatal(err);
+            throw new IOException(err);
+        }
+        LOGGER.info(String.format("Using secondary index table %s", secondaryIndexTable));
+
 
         secondaryIndexCF = env.getConfiguration().get("secondary_index_cf");
-        if(secondaryIndexCF == null) {
-            LOGGER.fatal("No 'secondary_index_cf' specified, cannot continue. Please set secondary_index_cf=some_sensible_value for the coprocessor");
+        if(secondaryIndexCF == null|| secondaryIndexCF.isEmpty()) {
+            String err = "No 'secondary_index_cf' specified, cannot continue. Please set secondary_index_cf=some_sensible_value for the coprocessor";
+            LOGGER.fatal(err);
+            throw new IllegalArgumentException(err);
         }
 
         // the column family name to take all values from
@@ -95,6 +114,14 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
         //option to run *expensive* debugging
         f_debug = Boolean.parseBoolean(env.getConfiguration().get("full_debug"));
+
+        amq_address = env.getConfiguration().get("amq_address");
+
+        if(amq_address == null || amq_address.isEmpty() || !amq_address.contains(":")) {
+            String err = String.format("amq_address incorrectly configured (%s), cannot set up coprocessor", amq_address);
+            LOGGER.fatal(err);
+            throw new IOException(err);
+        }
 
         LOGGER.info("Initializing data rippler copying values from column family " + sourceCF + " to " + destinationTable + ":" + targetCf);
         LOGGER.info("Using secondary index " + secondaryIndexTable + ", column family: "+ secondaryIndexCF);
@@ -110,7 +137,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         Table table = null;
         Table secTable = null;
         try {
-            LOGGER.trace("Entering DDR:postPut");
+            LOGGER.trace("Entering DDR#postPut");
             long startTime = System.nanoTime();
             double lapTime;
 
@@ -174,16 +201,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                     LOGGER.debug(String.format("Found %s targetKeys", targetRowkeys.size()));
                     for (byte[] targetKey : targetRowkeys) {
                         LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
-                        Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
-                        LOGGER.trace(String.format("Inserting from '%s', '%s' %s ==> '%s', '%s'  %s:%s",
-                                sourceTable,
-                                new String(rowKey),
-                                sourceCF,
-                                destinationTable,
-                                new String(targetKey),
-                                new String(family),
-                                new String(qualifier)));
-                        table.put(targetData);
+                        sendRippling(table, sourceTable, rowKey, family, qualifier, value, targetKey);
                     }
                     lapTime = (double) (System.nanoTime() - startTime) / NANOS_TO_SECS;
                     LOGGER.debug(String.format("Wrote %s items to %s in %f seconds from start", targetRowkeys.size(), destinationTable, lapTime));
@@ -219,6 +237,19 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 secTable.close();
             }
         }
+    }
+
+    private void sendRippling(Table table, String sourceTable, byte[] rowKey, byte[] family, byte[] qualifier, byte[] value, byte[] targetKey) throws IOException {
+        Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
+        LOGGER.trace(String.format("Inserting from '%s', '%s' %s ==> '%s', '%s'  %s:%s",
+                sourceTable,
+                new String(rowKey),
+                sourceCF,
+                destinationTable,
+                new String(targetKey),
+                new String(family),
+                new String(qualifier)));
+        table.put(targetData);
     }
 
     private List<byte[]> getTargetRowkeys(byte[] rowKey, Table secTable) throws IOException {
