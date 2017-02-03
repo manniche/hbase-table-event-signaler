@@ -8,10 +8,9 @@
   <parent>
     <groupId>net.nzcorp.hbase</groupId>
     <artifactId>hbase</artifactId>
-    <version>${project-version}</version>
-    <relativePath>..</relativePath>
+    <version>${project.version}</version>
+    <relativePath>../</relativePath>
   </parent>
-
   <build>
     <plugins>
         <plugin>
@@ -26,16 +25,73 @@
     </plugins>
   </build>
   <dependencies>
-    <dependency>
-      <groupId>org.apache.hbase</groupId>
-      <artifactId>hbase-server</artifactId>
-      <version>${hbase.version}</version>
-    </dependency>
+      <dependency>
+          <groupId>org.json</groupId>
+          <artifactId>json</artifactId>
+          <version>20160810</version>
+      </dependency>
+      <dependency>
+          <groupId>org.apache.hbase</groupId>
+          <artifactId>hbase-server</artifactId>
+          <version>${hbase.version}</version>
+          <exclusions>
+              <exclusion>
+                  <groupId>org.slf4j</groupId>
+                  <artifactId>slf4j-log4j12</artifactId>
+              </exclusion>
+          </exclusions>
+      </dependency>
+      <dependency>
+          <groupId>com.rabbitmq</groupId>
+          <artifactId>amqp-client</artifactId>
+          <version>4.0.2</version>
+          <exclusions>
+              <exclusion>
+                  <groupId>org.slf4j</groupId>
+                  <artifactId>slf4j-log4j12</artifactId>
+              </exclusion>
+          </exclusions>
+      </dependency>
       <dependency>
           <groupId>org.apache.hbase</groupId>
           <artifactId>hbase-testing-util</artifactId>
           <version>${hbase.version}</version>
+          <exclusions>
+              <exclusion>
+                  <groupId>org.slf4j</groupId>
+                  <artifactId>slf4j-log4j12</artifactId>
+              </exclusion>
+          </exclusions>
       </dependency>
+      <dependency>
+          <groupId>net.nzcorp.hbase</groupId>
+          <artifactId>nzcorp-hbase-common</artifactId>
+          <version>0.6.0</version>
+      </dependency>
+      <dependency>
+          <groupId>javax</groupId>
+          <artifactId>javaee-api</artifactId>
+          <version>7.0</version>
+      </dependency>
+      <dependency>
+          <groupId>org.mockito</groupId>
+          <artifactId>mockito-core</artifactId>
+          <version>2.2.28</version>
+          <scope>test</scope>
+      </dependency>
+      <dependency>
+          <groupId>org.apache.qpid</groupId>
+          <artifactId>qpid-broker</artifactId>
+          <version>6.1.0</version>
+          <exclusions>
+              <exclusion>
+                  <groupId>org.slf4j</groupId>
+                  <artifactId>slf4j-log4j12</artifactId>
+              </exclusion>
+          </exclusions>
+      </dependency>
+
   </dependencies>
+
 </project>
 

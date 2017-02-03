@@ -8,8 +8,8 @@
   <parent>
     <groupId>net.nzcorp.hbase</groupId>
     <artifactId>hbase</artifactId>
-    <version>${project-version}</version>
-    <relativePath>..</relativePath>
+    <version>${project.version}</version>
+    <relativePath>../</relativePath>
   </parent>
 
   <build>
@@ -31,11 +31,6 @@
       <artifactId>hbase-server</artifactId>
       <version>${hbase.version}</version>
     </dependency>
-      <dependency>
-          <groupId>org.apache.hbase</groupId>
-          <artifactId>hbase-testing-util</artifactId>
-          <version>${hbase.version}</version>
-      </dependency>
   </dependencies>
 </project>
 

@@ -1,4 +1,9 @@
-package com.nzcorp.hbase.data_rippler;
+package net.nzcorp.hbase.data_rippler;
+
+import com.rabbitmq.client.AMQP;
+import com.rabbitmq.client.BuiltinExchangeType;
+import net.nzcorp.ampq.types.ContentType;
+import net.nzcorp.ampq.types.DeliveryType;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -11,14 +16,14 @@ import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
-import org.apache.hadoop.hbase.filter.PrefixFilter;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
-import org.apache.hadoop.hbase.util.Bytes;
 
+import org.json.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
+import java.util.concurrent.TimeoutException;
 
 //remember to add the hbase dependencies to the pom file
 @SuppressWarnings("unused")
@@ -57,6 +62,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
     private static final double NANOS_TO_SECS = 1000000000.0;
     private String amq_address;
 
+    private com.rabbitmq.client.ConnectionFactory factory;
+    private com.rabbitmq.client.Connection connection;
+    private com.rabbitmq.client.Channel channel;
+    private boolean build_cache;
 
     @Override
     public void start(CoprocessorEnvironment env) throws IOException {
@@ -72,18 +81,14 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         conn = ConnectionFactory.createConnection(env.getConfiguration());
         Admin hbAdmin = conn.getAdmin();
 
-        destinationTable = env.getConfiguration().get("destination_table");
-        if(destinationTable == null|| destinationTable.isEmpty()) {
-            String err = "No value for 'destination_table' specified, aborting coprocessor";
-            LOGGER.fatal(err);
-            throw new IllegalArgumentException(err);
-        }
-        if(! hbAdmin.tableExists(TableName.valueOf(destinationTable))) {
-            String err = "Table " + destinationTable + " does not exist";
-            LOGGER.fatal(err);
-            throw new IOException(err);
-        }
-        LOGGER.info(String.format("Using destination table %s", destinationTable));
+                destinationTable = env.getConfiguration().get("destination_table");
+                if(destinationTable == null|| destinationTable.isEmpty()) {
+                    String err = "No value for 'destination_table' specified, aborting coprocessor";
+                    LOGGER.fatal(err);
+                    throw new IllegalArgumentException(err);
+                }
+                LOGGER.info(String.format("Using destination queue %s", destinationTable));
+
 
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
         if(secondaryIndexTable == null|| secondaryIndexTable.isEmpty()) {
@@ -122,7 +127,22 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             LOGGER.fatal(err);
             throw new IOException(err);
         }
+        try {
+            factory = new com.rabbitmq.client.ConnectionFactory();
+            factory.setHost(amq_address);
+            factory.setVirtualHost("default");
+            factory.setUsername("guest");
+            factory.setPassword("guest");
+            connection = factory.newConnection();
+            channel = connection.createChannel();
+            channel.exchangeDeclare("", BuiltinExchangeType.DIRECT, true);
+            channel.queueDeclare(destinationTable, true, false, false, null);
+        } catch (TimeoutException toe) {
+            LOGGER.error(String.format("Timeout while trying to connect to MQ@%s", amq_address));
+            throw new CoprocessorException(toe.getMessage());
+        }
 
+        build_cache = false;
         LOGGER.info("Initializing data rippler copying values from column family " + sourceCF + " to " + destinationTable + ":" + targetCf);
         LOGGER.info("Using secondary index " + secondaryIndexTable + ", column family: "+ secondaryIndexCF);
 
@@ -172,42 +192,32 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 }
             }
 
-            table = conn.getTable(TableName.valueOf(destinationTable));
-            secTable = conn.getTable(TableName.valueOf(secondaryIndexTable));
-
             for (Cell cell : list_of_cells) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
-                final byte[] family = targetCf.getBytes();
-                final byte[] qualifier = CellUtil.cloneQualifier(cell);
-                final byte[] value = CellUtil.cloneValue(cell);
 
-                if (!keysCache.containsKey(new String(rowKey))) {
-                    lapTime = (double) (System.nanoTime()) / NANOS_TO_SECS;
+                if(build_cache) {
+                    if (!keysCache.containsKey(new String(rowKey))) {
+                        lapTime = (double) (System.nanoTime()) / NANOS_TO_SECS;
 
-                    LOGGER.debug(String.format("building cache for %s", new String(rowKey)));
-                    keysCache.put(new String(rowKey), getTargetRowkeys(rowKey, secTable));
-                    lapTime = (System.nanoTime() / NANOS_TO_SECS) - lapTime;
-                    LOGGER.debug(String.format("Built cache in %f seconds", lapTime));
-                }
-
-
-                LOGGER.debug(String.format("Looking up rowkey: %s", new String(rowKey)));
-
-                List<byte[]> targetRowkeys = keysCache.get(new String(rowKey));
-
-                if (targetRowkeys == null || targetRowkeys.size() == 0) {
-                    LOGGER.warn("No target keys found for rowkey " + new String(rowKey));
-                }else {
-                    LOGGER.debug(String.format("Found %s targetKeys", targetRowkeys.size()));
-                    for (byte[] targetKey : targetRowkeys) {
-                        LOGGER.trace("Put'ing into " + destinationTable + ": " + new String(targetKey));
-                        sendRippling(table, sourceTable, rowKey, family, qualifier, value, targetKey);
+                        LOGGER.debug(String.format("building cache for %s", new String(rowKey)));
+                        keysCache.put(new String(rowKey), getTargetRowkeys(rowKey, secTable));
+                        lapTime = (System.nanoTime() / NANOS_TO_SECS) - lapTime;
+                        LOGGER.debug(String.format("Built cache in %f seconds", lapTime));
                     }
-                    lapTime = (double) (System.nanoTime() - startTime) / NANOS_TO_SECS;
-                    LOGGER.debug(String.format("Wrote %s items to %s in %f seconds from start", targetRowkeys.size(), destinationTable, lapTime));
                 }
+
+                AMQP.BasicProperties headers = new AMQP.BasicProperties.Builder().
+                        contentType(ContentType.JSON).
+                        priority(1).
+                        deliveryMode(DeliveryType.PERSISTENT).build();
+                String message = constructJsonObject(keysCache, cell, rowKey);
+
+
+                channel.basicPublish(destinationTable,
+                                     new String(rowKey),
+                                     headers,
+                                     message.getBytes());
             }
-            secTable.close();
 
             long endTime = System.nanoTime();
             double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
@@ -218,7 +228,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             //In order not to drop its marbles when the HBase server throws an IllegalArgumentException, we allow the
             // coprocessor to continue operating, thereby allowing the HBase RS to continue operating.
             // This exception is throws before the secondary index table is opened, so just move along
-            return;
+            throw new CoprocessorException(ex.getMessage());
 
         } catch (NoSuchMethodException e) {
             LOGGER.error("In trying to acquire reference to the Mutation::getCellList, an error occurred", e);
@@ -239,17 +249,29 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         }
     }
 
-    private void sendRippling(Table table, String sourceTable, byte[] rowKey, byte[] family, byte[] qualifier, byte[] value, byte[] targetKey) throws IOException {
-        Put targetData = new Put(targetKey).addColumn(family, qualifier, value);
-        LOGGER.trace(String.format("Inserting from '%s', '%s' %s ==> '%s', '%s'  %s:%s",
-                sourceTable,
-                new String(rowKey),
-                sourceCF,
-                destinationTable,
-                new String(targetKey),
-                new String(family),
-                new String(qualifier)));
-        table.put(targetData);
+    private String constructJsonObject(Map<String, List<byte[]>> keysCache, Cell cell, byte[] rowKey) {
+        /**
+         * If build_cache == true, we retrieve target keys from the secondary index and send them along in the
+         * json message
+        */
+
+        JSONObject jo = new JSONObject();
+
+        List<String> ls = new ArrayList<>();
+        if(build_cache) {
+            for( byte[] ba : keysCache.get(new String(rowKey)) ){
+                ls.add(new String(ba));
+            }
+        }
+
+         jo.put("column_family", targetCf);
+         jo.put("column_qualifier", new String(CellUtil.cloneQualifier(cell)));
+         jo.put("column_value",new String(CellUtil.cloneValue(cell)));
+         jo.put("secondary_index", secondaryIndexTable);
+         jo.put("secondary_index_cf", secondaryIndexCF);
+         jo.put("target_keys", ls);
+
+        return jo.toString();
     }
 
     private List<byte[]> getTargetRowkeys(byte[] rowKey, Table secTable) throws IOException {
