@@ -9,23 +9,22 @@ import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.qpid.server.Broker;
 import org.apache.qpid.server.BrokerOptions;
+import org.json.JSONObject;
 import org.junit.*;
 import org.junit.rules.ExternalResource;
 import org.junit.runner.RunWith;
-import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 @RunWith(MockitoJUnitRunner.class)
 public class DownstreamDataRipplerTest {
+    private Broker broker;
     private static final String amq_default_address = "::1";
     private static final String secondaryIdxTableNameString = "genome_index";
     private static final TableName primaryTableName = TableName.valueOf("genome");
@@ -35,6 +34,10 @@ public class DownstreamDataRipplerTest {
 
     private HBaseTestingUtility testingUtility = new HBaseTestingUtility();
 
+    /**
+     * Disable all loggers except for the coprocessor class. If you would like to silence the log output alltogether,
+     * remove the line with the coprocessor name in it
+     */
     @BeforeClass
     public static void beforeClass() {
         List<Logger> loggers = Collections.<Logger>list(LogManager.getCurrentLoggers());
@@ -45,6 +48,18 @@ public class DownstreamDataRipplerTest {
         LogManager.getLogger(DownstreamDataRippler.class).setLevel(Level.TRACE);
     }
 
+    /**
+     * emulate the hbase-site.xml, while allowing for the individual test to start up a cluster with a special
+     * configuration for the coprocessor
+     *
+     * @param destination_table
+     * @param sec_idx_table
+     * @param src_cf
+     * @param trgt_cf
+     * @param sec_idx_cf
+     * @param amq_addr
+     * @return
+     */
     private Map<String, String> configureHBase(String destination_table,
                                                String sec_idx_table,
                                                String src_cf,
@@ -61,6 +76,12 @@ public class DownstreamDataRipplerTest {
         return kvs;
     }
 
+    /**
+     * Set up the cluster, create tables + column families and install coprocessor
+     *
+     * @param kvs
+     * @throws Exception
+     */
     private void setupHBase(Map<String, String> kvs) throws Exception {
 
         // Get random port number
@@ -101,7 +122,6 @@ public class DownstreamDataRipplerTest {
 
     @Rule
     public final ExternalResource embeddedAMQPBroker = new ExternalResource() {
-        Broker broker;
 
         @Override
         protected void before() throws Throwable {
@@ -125,7 +145,8 @@ public class DownstreamDataRipplerTest {
         protected void after() {
             broker.shutdown();
         }
-        private String getResourcePath(String filename){
+
+        private String getResourcePath(String filename) {
             ClassLoader classLoader = getClass().getClassLoader();
             File file = new File(classLoader.getResource(filename).getFile());
             return file.getAbsolutePath();
@@ -146,30 +167,38 @@ public class DownstreamDataRipplerTest {
 
         // Add a column to the primary table, which should trigger a data ripple to the downstream table
         Put tablePut = new Put("EFG1".getBytes());
-        tablePut.addColumn( "e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
+        tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
         primaryTable.put(tablePut);
 
         //check that values made it to the queue
+        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
+        factory.setUri("amqp://guest:guest@localhost:5672/default");
+        com.rabbitmq.client.Connection conn = factory.newConnection();
+        com.rabbitmq.client.Channel channel = conn.createChannel();
+        channel.basicConsume("default", false, new com.rabbitmq.client.DefaultConsumer(channel) {
+            @Override
+            public void handleDelivery(String consumerTag,
+                                       com.rabbitmq.client.Envelope envelope,
+                                       com.rabbitmq.client.AMQP.BasicProperties properties,
+                                       byte[] body)
+                    throws IOException {
+                String routingKey = envelope.getRoutingKey();
+
+                Assert.assertEquals("Routing key should be rowkey", "EFG1", routingKey);
+                String contentType = properties.getContentType();
+                Assert.assertEquals("Content type should be preserved", "application/json", contentType);
+                long deliveryTag = envelope.getDeliveryTag();
+
+                JSONObject jo = new JSONObject(body);
+                String column_family = (String)jo.get("column_family");
+                Assert.assertEquals("Column family should be preserved in the message body", "e", column_family);
+
+                String column_value = (String)jo.get("column_value");
+                Assert.assertEquals("Column value should be preserved in the message body", "some_value", column_value);
+
+                channel.basicAck(deliveryTag, false);
+            }
+        });
+
     }
-
-    @Test
-    public void postPutGetInterpretation() throws Exception {
-        Map<String, String> kvs = configureHBase("default", secondaryIdxTableNameString, "e", "eg", "a", amq_default_address);
-
-        setupHBase(kvs);
-
-        //simulate population of secondary index as a result of the above
-        Put idxPut = new Put("EFG1".getBytes());
-        idxPut.addColumn("a".getBytes(), "EFB10L".getBytes(), "".getBytes());
-        secondaryIdxTable.put(idxPut);
-        //secondaryIdxTable.flushCommits();
-
-        Put tablePut = new Put("EFG1".getBytes());
-        tablePut.addColumn( "e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
-        primaryTable.put(tablePut);
-        //primaryTable.flushCommits();
-
-        //check that the values made it to the queue
-    }
-
 }
