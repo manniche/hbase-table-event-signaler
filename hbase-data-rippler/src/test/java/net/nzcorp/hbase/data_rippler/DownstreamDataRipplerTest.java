@@ -25,7 +25,7 @@ import java.util.Map;
 @RunWith(MockitoJUnitRunner.class)
 public class DownstreamDataRipplerTest {
     private Broker broker;
-    private static final String amq_default_address = "::1";
+    private static final String amq_default_address = "amqp://guest:guest@0.0.0.0:5672/default";
     private static final String secondaryIdxTableNameString = "genome_index";
     private static final TableName primaryTableName = TableName.valueOf("genome");
     private static final TableName secondaryIdxTableName = TableName.valueOf(secondaryIdxTableNameString);
@@ -172,7 +172,7 @@ public class DownstreamDataRipplerTest {
 
         //check that values made it to the queue
         com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-        factory.setUri("amqp://guest:guest@localhost:5672/default");
+        factory.setUri(amq_default_address);
         com.rabbitmq.client.Connection conn = factory.newConnection();
         com.rabbitmq.client.Channel channel = conn.createChannel();
         channel.basicConsume("default", false, new com.rabbitmq.client.DefaultConsumer(channel) {

@@ -24,6 +24,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.TimeoutException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 //remember to add the hbase dependencies to the pom file
 @SuppressWarnings("unused")
@@ -59,22 +61,14 @@ public class DownstreamDataRippler extends BaseRegionObserver {
      */
     private boolean f_debug;
 
-    /**
-     * The fully qualified connection string to the amqp server
-     *
-     * e.g.  amqp://guest:guest@rabbitmq:5672/airflow
-     */
 
     private static final double NANOS_TO_SECS = 1000000000.0;
-    private String amq_address;
 
-    private com.rabbitmq.client.ConnectionFactory factory;
-    private com.rabbitmq.client.Connection connection;
     private com.rabbitmq.client.Channel channel;
 
     @Override
     public void start(CoprocessorEnvironment env) throws IOException {
-        /**
+        /*
          * The CoprocessorEnvironment.getConfiguration() will return a
          * Hadoop Configuration element as described here:
          * https://hadoop.apache.org/docs/r2.6.1/api/org/apache/hadoop/conf/Configuration.html
@@ -88,11 +82,11 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
                 destinationTable = env.getConfiguration().get("destination_table");
                 if(destinationTable == null|| destinationTable.isEmpty()) {
-                    String err = "No value for 'destination_table' specified, aborting coprocessor";
+                    String err = "No value for 'destination_tables' specified, aborting coprocessor";
                     LOGGER.fatal(err);
                     throw new IllegalArgumentException(err);
                 }
-                LOGGER.info(String.format("Using destination queue %s", destinationTable));
+                LOGGER.info(String.format("destination table set to %s", destinationTable));
 
 
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
@@ -125,20 +119,43 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         //option to run *expensive* debugging
         f_debug = Boolean.parseBoolean(env.getConfiguration().get("full_debug"));
 
-        amq_address = env.getConfiguration().get("amq_address");
+        /*
+         * The fully qualified connection string to the amqp server
+         *
+         * e.g.  amqp://guest:guest@rabbitmq:5672/airflow
+         */
+        String amq_address = env.getConfiguration().get("amq_address");
 
-        if(amq_address == null || amq_address.isEmpty() || !amq_address.contains(":")) {
+        if(amq_address == null || amq_address.isEmpty()) {
+            String err = String.format("missing value for parameter amq_address");
+            LOGGER.fatal(err);
+            throw new IOException(err);
+        }
+
+        Pattern p = Pattern.compile("(?<protocol>.+?(?=:))://(?<user>[a-z]+?(?=:)):(?<pass>.+?(?=@))@(?<server>.+?(?=:)):(?<port>[0-9]+?(?=/))(?<vhost>.+$)");
+        Matcher m = p.matcher(amq_address);
+
+        if(! m.matches()) {
             String err = String.format("amq_address incorrectly configured (%s), cannot set up coprocessor", amq_address);
             LOGGER.fatal(err);
             throw new IOException(err);
         }
+
+        String protocol = m.group("protocol");
+        String user = m.group("user");
+        String pass = m.group("pass");
+        String server = m.group("server");
+        String port = m.group("port");
+        String vhost = m.group("vhost");
+
         try {
-            factory = new com.rabbitmq.client.ConnectionFactory();
-            factory.setHost(amq_address);
-            factory.setVirtualHost("default");
-            factory.setUsername("guest");
-            factory.setPassword("guest");
-            connection = factory.newConnection();
+            com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
+            factory.setHost(server);
+            factory.setPort(Integer.parseInt(port));
+            factory.setVirtualHost(vhost);
+            factory.setUsername(user);
+            factory.setPassword(pass);
+            com.rabbitmq.client.Connection connection = factory.newConnection();
             channel = connection.createChannel();
             channel.exchangeDeclare("", BuiltinExchangeType.DIRECT, true);
             channel.queueDeclare(destinationTable, true, false, false, null);
