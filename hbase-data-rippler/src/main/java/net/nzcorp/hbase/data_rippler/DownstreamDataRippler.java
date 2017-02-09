@@ -132,7 +132,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             throw new IOException(err);
         }
 
-        Pattern p = Pattern.compile("(?<protocol>.+?(?=:))://(?<user>[a-z]+?(?=:)):(?<pass>.+?(?=@))@(?<server>.+?(?=:)):(?<port>[0-9]+?(?=/))(?<vhost>.+$)");
+        Pattern p = Pattern.compile("(?<protocol>.+?(?=:))://(?<user>[a-z]+?(?=:)):(?<pass>.+?(?=@))@(?<server>.+?(?=:)):(?<port>[0-9]+?(?=/))/(?<vhost>.+$)");
         Matcher m = p.matcher(amq_address);
 
         if(! m.matches()) {
@@ -155,9 +155,10 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             factory.setVirtualHost(vhost);
             factory.setUsername(user);
             factory.setPassword(pass);
+            LOGGER.info(String.format("Trying to connect to amqp://%s:****@%s:%s/%s", user, server, port, vhost));
             com.rabbitmq.client.Connection connection = factory.newConnection();
             channel = connection.createChannel();
-            channel.exchangeDeclare("", BuiltinExchangeType.DIRECT, true);
+            channel.exchangeDeclare(destinationTable, BuiltinExchangeType.DIRECT, true);
             channel.queueDeclare(destinationTable, true, false, false, null);
         } catch (TimeoutException toe) {
             LOGGER.error(String.format("Timeout while trying to connect to MQ@%s", amq_address));
