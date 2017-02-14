@@ -19,6 +19,7 @@ import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 
 import org.json.*;
+
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -80,22 +81,22 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         conn = ConnectionFactory.createConnection(env.getConfiguration());
         Admin hbAdmin = conn.getAdmin();
 
-                destinationTable = env.getConfiguration().get("destination_table");
-                if(destinationTable == null|| destinationTable.isEmpty()) {
-                    String err = "No value for 'destination_tables' specified, aborting coprocessor";
-                    LOGGER.fatal(err);
-                    throw new IllegalArgumentException(err);
-                }
-                LOGGER.info(String.format("destination table set to %s", destinationTable));
+        destinationTable = env.getConfiguration().get("destination_table");
+        if (destinationTable == null || destinationTable.isEmpty()) {
+            String err = "No value for 'destination_tables' specified, aborting coprocessor";
+            LOGGER.fatal(err);
+            throw new IllegalArgumentException(err);
+        }
+        LOGGER.info(String.format("destination table set to %s", destinationTable));
 
 
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
-        if(secondaryIndexTable == null|| secondaryIndexTable.isEmpty()) {
+        if (secondaryIndexTable == null || secondaryIndexTable.isEmpty()) {
             String err = "No value for 'secondary_index_table' specified, aborting coprocessor";
             LOGGER.fatal(err);
             throw new IllegalArgumentException(err);
         }
-        if(!hbAdmin.tableExists(TableName.valueOf(secondaryIndexTable))) {
+        if (!hbAdmin.tableExists(TableName.valueOf(secondaryIndexTable))) {
             String err = "Table " + secondaryIndexTable + " does not exist";
             LOGGER.fatal(err);
             throw new IOException(err);
@@ -104,7 +105,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
 
 
         secondaryIndexCF = env.getConfiguration().get("secondary_index_cf");
-        if(secondaryIndexCF == null|| secondaryIndexCF.isEmpty()) {
+        if (secondaryIndexCF == null || secondaryIndexCF.isEmpty()) {
             String err = "No 'secondary_index_cf' specified, cannot continue. Please set secondary_index_cf=some_sensible_value for the coprocessor";
             LOGGER.fatal(err);
             throw new IllegalArgumentException(err);
@@ -126,7 +127,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
          */
         String amq_address = env.getConfiguration().get("amq_address");
 
-        if(amq_address == null || amq_address.isEmpty()) {
+        if (amq_address == null || amq_address.isEmpty()) {
             String err = String.format("missing value for parameter amq_address");
             LOGGER.fatal(err);
             throw new IOException(err);
@@ -135,7 +136,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         Pattern p = Pattern.compile("(?<protocol>.+?(?=:))://(?<user>[a-z]+?(?=:)):(?<pass>.+?(?=@))@(?<server>.+?(?=:)):(?<port>[0-9]+?(?=/))/(?<vhost>.+$)");
         Matcher m = p.matcher(amq_address);
 
-        if(! m.matches()) {
+        if (!m.matches()) {
             String err = String.format("amq_address incorrectly configured (%s), cannot set up coprocessor", amq_address);
             LOGGER.fatal(err);
             throw new IOException(err);
@@ -166,7 +167,7 @@ public class DownstreamDataRippler extends BaseRegionObserver {
         }
 
         LOGGER.info("Initializing data rippler copying values from column family " + sourceCF + " to " + destinationTable + ":" + targetCf);
-        LOGGER.info("Using secondary index " + secondaryIndexTable + ", column family: "+ secondaryIndexCF);
+        LOGGER.info("Using secondary index " + secondaryIndexTable + ", column family: " + secondaryIndexCF);
 
     }
 
@@ -219,9 +220,9 @@ public class DownstreamDataRippler extends BaseRegionObserver {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
 
                 channel.basicPublish(destinationTable,
-                                     new String(rowKey),
-                                     headers,
-                                     message.getBytes());
+                        new String(rowKey),
+                        headers,
+                        message.getBytes());
             }
 
             long endTime = System.nanoTime();
@@ -253,13 +254,13 @@ public class DownstreamDataRippler extends BaseRegionObserver {
          * json message
         */
 
-         JSONObject jo = new JSONObject();
+        JSONObject jo = new JSONObject();
 
-         jo.put("column_family", targetCf);
-         jo.put("column_qualifier", new String(CellUtil.cloneQualifier(cell)));
-         jo.put("column_value",new String(CellUtil.cloneValue(cell)));
-         jo.put("secondary_index", secondaryIndexTable);
-         jo.put("secondary_index_cf", secondaryIndexCF);
+        jo.put("column_family", targetCf);
+        jo.put("column_qualifier", new String(CellUtil.cloneQualifier(cell)));
+        jo.put("column_value", new String(CellUtil.cloneValue(cell)));
+        jo.put("secondary_index", secondaryIndexTable);
+        jo.put("secondary_index_cf", secondaryIndexCF);
 
         return jo.toString();
     }
