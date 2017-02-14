@@ -22,6 +22,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * The tests in this test suite uses the junit unittest framework, but is really an integration test in disguise.
+ * We start up a hbase minicluster (in {@link DownstreamDataRipplerTest#setupHBase(Map)} and a minimal AMQP
+ * implementation in {@link DownstreamDataRipplerTest#embeddedAMQPBroker}, both running in memory and torn down
+ * after each test
+ *
+ * @throws Exception
+ */
 @RunWith(MockitoJUnitRunner.class)
 public class DownstreamDataRipplerTest {
     private Broker broker;
