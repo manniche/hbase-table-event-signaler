@@ -1,4 +1,4 @@
-package net.nzcorp.ampq.types;
+package net.nzcorp.amqp.types;
 
 public class ContentType {
     public static final String JSON = "application/json";

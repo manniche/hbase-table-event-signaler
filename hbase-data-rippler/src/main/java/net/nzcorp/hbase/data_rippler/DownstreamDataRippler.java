@@ -2,8 +2,8 @@ package net.nzcorp.hbase.data_rippler;
 
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.BuiltinExchangeType;
-import net.nzcorp.ampq.types.ContentType;
-import net.nzcorp.ampq.types.DeliveryType;
+import net.nzcorp.amqp.types.ContentType;
+import net.nzcorp.amqp.types.DeliveryType;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;

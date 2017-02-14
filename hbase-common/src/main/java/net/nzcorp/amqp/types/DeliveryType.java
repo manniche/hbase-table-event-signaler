@@ -1,4 +1,4 @@
-package net.nzcorp.ampq.types;
+package net.nzcorp.amqp.types;
 
 public class DeliveryType {
     public static final int NON_PERSISTENT = 1;
