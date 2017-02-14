@@ -1,4 +1,4 @@
-package net.nzcorp.hbase.data_rippler;
+package net.nzcorp.hbase.tableevent_signaler;
 
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.BuiltinExchangeType;
@@ -30,8 +30,8 @@ import java.util.regex.Pattern;
 
 //remember to add the hbase dependencies to the pom file
 @SuppressWarnings("unused")
-public class DownstreamDataRippler extends BaseRegionObserver {
-    private static final Log LOGGER = LogFactory.getLog(DownstreamDataRippler.class);
+public class TableEventSignaler extends BaseRegionObserver {
+    private static final Log LOGGER = LogFactory.getLog(TableEventSignaler.class);
     /**
      * Connection to HBase
      */
@@ -159,14 +159,14 @@ public class DownstreamDataRippler extends BaseRegionObserver {
             LOGGER.info(String.format("Trying to connect to amqp://%s:****@%s:%s/%s", user, server, port, vhost));
             com.rabbitmq.client.Connection connection = factory.newConnection();
             channel = connection.createChannel();
-            channel.exchangeDeclare(destinationTable, BuiltinExchangeType.DIRECT, true);
-            channel.queueDeclare(destinationTable, true, false, false, null);
+            channel.exchangeDeclare("", BuiltinExchangeType.DIRECT, true);
+            channel.queueDeclare("default", true, false, false, null);
         } catch (TimeoutException toe) {
             LOGGER.error(String.format("Timeout while trying to connect to MQ@%s", amq_address));
             throw new CoprocessorException(toe.getMessage());
         }
 
-        LOGGER.info("Initializing data rippler copying values from column family " + sourceCF + " to " + destinationTable + ":" + targetCf);
+        LOGGER.info("Initializing table event signaler, sending values from column family " + sourceCF + " to " + destinationTable + ":" + targetCf);
         LOGGER.info("Using secondary index " + secondaryIndexTable + ", column family: " + secondaryIndexCF);
 
     }

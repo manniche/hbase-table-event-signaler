@@ -17,6 +17,6 @@
   <modules>
     <module>hbase-common</module>
     <module>hbase-secondary-indexer</module>
-    <module>hbase-data-rippler</module>
+    <module>hbase-tableevent-signaler</module>
   </modules>
 </project>

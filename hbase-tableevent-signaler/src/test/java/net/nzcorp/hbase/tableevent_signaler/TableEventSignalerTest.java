@@ -1,4 +1,4 @@
-package net.nzcorp.hbase.data_rippler;
+package net.nzcorp.hbase.tableevent_signaler;
 
 import com.google.common.io.Files;
 import org.apache.hadoop.hbase.*;
@@ -24,18 +24,19 @@ import java.util.Map;
 
 /**
  * The tests in this test suite uses the junit unittest framework, but is really an integration test in disguise.
- * We start up a hbase minicluster (in {@link DownstreamDataRipplerTest#setupHBase(Map)} and a minimal AMQP
- * implementation in {@link DownstreamDataRipplerTest#embeddedAMQPBroker}, both running in memory and torn down
+ * We start up a hbase minicluster (in {@link TableEventSignalerTest#setupHBase(Map)} and a minimal AMQP
+ * implementation in {@link TableEventSignalerTest#embeddedAMQPBroker}, both running in memory and torn down
  * after each test
  *
  * @throws Exception
  */
 @RunWith(MockitoJUnitRunner.class)
-public class DownstreamDataRipplerTest {
+public class TableEventSignalerTest {
     private Broker broker;
     private static final String amq_default_address = "amqp://guest:guest@0.0.0.0:5672/default";
+    private static final String primaryTableNameString = "genome";
     private static final String secondaryIdxTableNameString = "genome_index";
-    private static final TableName primaryTableName = TableName.valueOf("genome");
+    private static final TableName primaryTableName = TableName.valueOf(primaryTableNameString);
     private static final TableName secondaryIdxTableName = TableName.valueOf(secondaryIdxTableNameString);
     private Table primaryTable;
     private Table secondaryIdxTable;
@@ -53,7 +54,7 @@ public class DownstreamDataRipplerTest {
         for (Logger logger : loggers) {
             logger.setLevel(Level.ERROR);
         }
-        LogManager.getLogger(DownstreamDataRippler.class).setLevel(Level.TRACE);
+        LogManager.getLogger(TableEventSignaler.class).setLevel(Level.TRACE);
     }
 
     /**
@@ -95,8 +96,8 @@ public class DownstreamDataRipplerTest {
         // Get random port number
         testingUtility.getConfiguration().setInt("hbase.regionserver.port", HBaseTestingUtility.randomFreePort());
         testingUtility.getConfiguration().setInt("hbase.master.info.port", HBaseTestingUtility.randomFreePort());
-        testingUtility.getConfiguration().setInt("hbase.client.scanner.timeout.period", 10);
-        testingUtility.getConfiguration().setInt("hbase.client.retries.number", 1);
+        testingUtility.getConfiguration().setInt("hbase.client.scanner.timeout.period", 1000);
+        testingUtility.getConfiguration().setInt("hbase.client.retries.number", 2);
         testingUtility.getConfiguration().setInt("hbase.client.pause", 1);
         testingUtility.getConfiguration().setBoolean(CoprocessorHost.ABORT_ON_ERROR_KEY, false);
 
@@ -105,16 +106,16 @@ public class DownstreamDataRipplerTest {
 
         HBaseAdmin hbAdmin = testingUtility.getHBaseAdmin();
 
-        System.out.println("Create secondary index");
+        System.out.println(String.format("Create secondary index %s", secondaryIdxTableNameString));
         HTableDescriptor secIdxTableDesc = new HTableDescriptor(secondaryIdxTableName);
         secIdxTableDesc.addFamily(new HColumnDescriptor("a"));
         hbAdmin.createTable(secIdxTableDesc);
 
-        System.out.println("Creating genome table");
+        System.out.println(String.format("Creating table %s", primaryTableName));
         HTableDescriptor primaryTableDesc = new HTableDescriptor(primaryTableName);
-        // Load the coprocessor on the primary table
-        primaryTableDesc.addCoprocessor(DownstreamDataRippler.class.getName(), null, Coprocessor.PRIORITY_USER, kvs);
         primaryTableDesc.addFamily(new HColumnDescriptor("e"));
+        // Load the coprocessor on the primary table
+        primaryTableDesc.addCoprocessor(TableEventSignaler.class.getName(), null, Coprocessor.PRIORITY_USER, kvs);
         hbAdmin.createTable(primaryTableDesc);
 
         secondaryIdxTable = testingUtility.getConnection().getTable(secondaryIdxTableName);
@@ -165,7 +166,7 @@ public class DownstreamDataRipplerTest {
     @Test
     public void postPutHappyCase() throws Exception {
 
-        Map<String, String> kvs = configureHBase("default", secondaryIdxTableNameString, "e", "eg", "a", amq_default_address);
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address);
         setupHBase(kvs);
 
         //simulate population of secondary index as a result of the above
