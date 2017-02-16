@@ -35,7 +35,14 @@ public class TableEventSignaler extends BaseRegionObserver {
     /**
      * Connection to HBase
      */
-    private Connection conn;
+    private Connection hbase_conn;
+
+    /**
+     * Connection to AMQP
+     */
+    private com.rabbitmq.client.Connection amqp_conn;
+
+
     /**
      * The table into which the values from the current table should be written into
      */
@@ -65,8 +72,6 @@ public class TableEventSignaler extends BaseRegionObserver {
 
     private static final double NANOS_TO_SECS = 1000000000.0;
 
-    private com.rabbitmq.client.Channel channel;
-
     @Override
     public void start(CoprocessorEnvironment env) throws IOException {
         /*
@@ -78,8 +83,8 @@ public class TableEventSignaler extends BaseRegionObserver {
          * the above configuration element
          */
 
-        conn = ConnectionFactory.createConnection(env.getConfiguration());
-        Admin hbAdmin = conn.getAdmin();
+        hbase_conn = ConnectionFactory.createConnection(env.getConfiguration());
+        Admin hbAdmin = hbase_conn.getAdmin();
 
         destinationTable = env.getConfiguration().get("destination_table");
         if (destinationTable == null || destinationTable.isEmpty()) {
@@ -121,14 +126,14 @@ public class TableEventSignaler extends BaseRegionObserver {
         f_debug = Boolean.parseBoolean(env.getConfiguration().get("full_debug"));
 
         /*
-         * The fully qualified connection string to the amqp server
+         * The fully qualified amqp_conn string to the amqp server
          *
          * e.g.  amqp://guest:guest@rabbitmq:5672/airflow
          */
         String amq_address = env.getConfiguration().get("amq_address");
 
         if (amq_address == null || amq_address.isEmpty()) {
-            String err = String.format("missing value for parameter amq_address");
+            String err = "missing value for parameter amq_address";
             LOGGER.fatal(err);
             throw new IOException(err);
         }
@@ -157,10 +162,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             factory.setUsername(user);
             factory.setPassword(pass);
             LOGGER.info(String.format("Trying to connect to amqp://%s:****@%s:%s/%s", user, server, port, vhost));
-            com.rabbitmq.client.Connection connection = factory.newConnection();
-            channel = connection.createChannel();
-            channel.exchangeDeclare("", BuiltinExchangeType.DIRECT, true);
-            channel.queueDeclare("default", true, false, false, null);
+            amqp_conn = factory.newConnection();
         } catch (TimeoutException toe) {
             LOGGER.error(String.format("Timeout while trying to connect to MQ@%s", amq_address));
             throw new CoprocessorException(toe.getMessage());
@@ -219,6 +221,9 @@ public class TableEventSignaler extends BaseRegionObserver {
 
                 final byte[] rowKey = CellUtil.cloneRow(cell);
 
+                com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
+                channel.exchangeDeclare("", BuiltinExchangeType.DIRECT, true);
+                channel.queueDeclare("default", true, false, false, null);
                 channel.basicPublish(destinationTable,
                         new String(rowKey),
                         headers,
@@ -267,6 +272,6 @@ public class TableEventSignaler extends BaseRegionObserver {
 
     @Override
     public void stop(CoprocessorEnvironment env) throws IOException {
-        conn.close();
+        hbase_conn.close();
     }
 }
