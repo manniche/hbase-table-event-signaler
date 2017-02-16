@@ -55,7 +55,7 @@
       <dependency>
           <groupId>net.nzcorp.hbase</groupId>
           <artifactId>nzcorp-hbase-common</artifactId>
-          <version>0.6.0</version>
+          <version>${project.version}</version>
       </dependency>
       <dependency>
           <groupId>javax</groupId>
