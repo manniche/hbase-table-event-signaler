@@ -69,6 +69,11 @@ public class TableEventSignaler extends BaseRegionObserver {
      */
     private boolean f_debug;
 
+    private String queue_name;
+
+    private String amq_address;
+
+    private com.rabbitmq.client.ConnectionFactory factory;
 
     private static final double NANOS_TO_SECS = 1000000000.0;
 
@@ -94,6 +99,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
         LOGGER.info(String.format("destination table set to %s", destinationTable));
 
+        queue_name = env.getConfiguration().get("queue_name");
 
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
         if (secondaryIndexTable == null || secondaryIndexTable.isEmpty()) {
@@ -130,7 +136,7 @@ public class TableEventSignaler extends BaseRegionObserver {
          *
          * e.g.  amqp://guest:guest@rabbitmq:5672/airflow
          */
-        String amq_address = env.getConfiguration().get("amq_address");
+         amq_address = env.getConfiguration().get("amq_address");
 
         if (amq_address == null || amq_address.isEmpty()) {
             String err = "missing value for parameter amq_address";
@@ -154,23 +160,22 @@ public class TableEventSignaler extends BaseRegionObserver {
         String port = m.group("port");
         String vhost = m.group("vhost");
 
-        try {
-            com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-            factory.setHost(server);
-            factory.setPort(Integer.parseInt(port));
-            factory.setVirtualHost(vhost);
-            factory.setUsername(user);
-            factory.setPassword(pass);
-            LOGGER.info(String.format("Trying to connect to amqp://%s:****@%s:%s/%s", user, server, port, vhost));
-            amqp_conn = factory.newConnection();
-        } catch (TimeoutException toe) {
-            LOGGER.error(String.format("Timeout while trying to connect to MQ@%s", amq_address));
-            throw new CoprocessorException(toe.getMessage());
+        factory = new com.rabbitmq.client.ConnectionFactory();
+        factory.setHost(server);
+        factory.setPort(Integer.parseInt(port));
+        factory.setVirtualHost(vhost);
+        factory.setUsername(user);
+        factory.setPassword(pass);
+
+        initAMQConnection();
+
+        boolean bar = amqp_conn.isOpen();
+        if(bar)
+        {
+            LOGGER.info(String.format("Successfully connected to MQ@%s", amq_address));
         }
 
-        LOGGER.info("Initializing table event signaler, sending values from column family " + sourceCF + " to " + destinationTable + ":" + targetCf);
-        LOGGER.info("Using secondary index " + secondaryIndexTable + ", column family: " + secondaryIndexCF);
-
+        LOGGER.info(String.format("Sending from %s#%s: --> %s#%s", secondaryIndexTable, sourceCF, destinationTable, targetCf));
     }
 
     @Override
@@ -221,13 +226,28 @@ public class TableEventSignaler extends BaseRegionObserver {
 
                 final byte[] rowKey = CellUtil.cloneRow(cell);
 
+                LOGGER.info(String.format("connection is open: %s", amqp_conn.isOpen()));
+                if(! amqp_conn.isOpen()) {
+                    LOGGER.info("Unexpectedly, we have no active connection to AMQP, trying to reconnect now");
+                    initAMQConnection();
+                    LOGGER.info(String.format("Are we connected? %s", amqp_conn.isOpen()));
+                    if(! amqp_conn.isOpen())
+                    {
+                        String err = String.format("Failed in reconnecting to AMQP @ %s", amq_address);
+                        LOGGER.error(err);
+                        throw new IOException(err);
+                    }
+                }
+                LOGGER.trace("Creating channel");
                 com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
-                channel.exchangeDeclare("", BuiltinExchangeType.DIRECT, true);
-                channel.queueDeclare("default", true, false, false, null);
-                channel.basicPublish(destinationTable,
-                        new String(rowKey),
+                AMQP.Queue.DeclareOk declareOk = channel.queueDeclare(queue_name, true, false, false, null);
+                LOGGER.info(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
+
+                channel.basicPublish("",
+                        queue_name,
                         headers,
                         message.getBytes());
+                LOGGER.info("Sent message");
             }
 
             long endTime = System.nanoTime();
@@ -253,6 +273,16 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
     }
 
+    private void initAMQConnection() throws IOException {
+        try {
+            LOGGER.info(String.format("Trying to connect to amqp://%s:****@%s:%s/%s", factory.getUsername(), factory.getHost(), factory.getPort(), factory.getVirtualHost()));
+            amqp_conn = factory.newConnection();
+        } catch (TimeoutException toe) {
+            LOGGER.error(String.format("Timeout while trying to connect to MQ@%s", amq_address));
+            throw new CoprocessorException(toe.getMessage());
+        }
+    }
+
     private String constructJsonObject(Cell cell) {
         /*
          * If build_cache == true, we retrieve target keys from the secondary index and send them along in the
@@ -273,5 +303,6 @@ public class TableEventSignaler extends BaseRegionObserver {
     @Override
     public void stop(CoprocessorEnvironment env) throws IOException {
         hbase_conn.close();
+        amqp_conn.close();
     }
 }
