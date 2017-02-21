@@ -217,15 +217,16 @@ public class TableEventSignaler extends BaseRegionObserver {
             }
 
             for (Cell cell : list_of_cells) {
+                final byte[] rowKey = CellUtil.cloneRow(cell);
 
                 AMQP.BasicProperties headers = new AMQP.BasicProperties.Builder().
                         contentType(ContentType.JSON).
                         priority(1).
                         deliveryMode(DeliveryType.PERSISTENT).build();
-                String message = constructJsonObject(cell);
+                String message = constructJsonObject(cell, rowKey);
 
-                final byte[] rowKey = CellUtil.cloneRow(cell);
 
+                LOGGER.info(String.format("constructed message for %s", new String(rowKey)));
                 LOGGER.info(String.format("connection is open: %s", amqp_conn.isOpen()));
                 if(! amqp_conn.isOpen()) {
                     LOGGER.info("Unexpectedly, we have no active connection to AMQP, trying to reconnect now");
@@ -283,7 +284,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
     }
 
-    private String constructJsonObject(Cell cell) {
+    private String constructJsonObject(Cell cell, byte[] rowKey) {
         /*
          * If build_cache == true, we retrieve target keys from the secondary index and send them along in the
          * json message
@@ -291,11 +292,13 @@ public class TableEventSignaler extends BaseRegionObserver {
 
         JSONObject jo = new JSONObject();
 
+        jo.put("row_key", new String(rowKey));
         jo.put("column_family", targetCf);
         jo.put("column_qualifier", new String(CellUtil.cloneQualifier(cell)));
         jo.put("column_value", new String(CellUtil.cloneValue(cell)));
         jo.put("secondary_index", secondaryIndexTable);
         jo.put("secondary_index_cf", secondaryIndexCF);
+        jo.put("destination_table", destinationTable);
 
         return jo.toString();
     }
