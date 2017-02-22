@@ -92,6 +92,11 @@
           </exclusions>
           <scope>test</scope>
       </dependency>
+      <dependency>
+          <groupId>net.nzcorp.hbase</groupId>
+          <artifactId>nzcorp-hbase-common</artifactId>
+          <version>${project.version}</version>
+      </dependency>
 
   </dependencies>
 
