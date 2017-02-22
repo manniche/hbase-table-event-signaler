@@ -219,9 +219,12 @@ public class TableEventSignaler extends BaseRegionObserver {
             for (Cell cell : list_of_cells) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
 
+                Map<String,Object> customHeader = new HashMap<>();
+                customHeader.put("action", "put");
                 AMQP.BasicProperties headers = new AMQP.BasicProperties.Builder().
                         contentType(ContentType.JSON).
                         priority(1).
+                        headers(customHeader).
                         deliveryMode(DeliveryType.PERSISTENT).build();
                 String message = constructJsonObject(cell, rowKey);
 

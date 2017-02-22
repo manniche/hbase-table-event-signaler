@@ -197,8 +197,12 @@ public class TableEventSignalerTest {
 
                 Assert.assertEquals("Routing key should be rowkey", "EFG1", routingKey);
                 String contentType = properties.getContentType();
+
                 Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-                long deliveryTag = envelope.getDeliveryTag();
+
+                Map<String, Object> headers = properties.getHeaders();
+                Assert.assertEquals("An action should be set on the message", "put", headers.get("action"));
+
 
                 JSONObject jo = new JSONObject(body);
                 String column_family = (String)jo.get("column_family");
@@ -207,6 +211,7 @@ public class TableEventSignalerTest {
                 String column_value = (String)jo.get("column_value");
                 Assert.assertEquals("Column value should be preserved in the message body", "some_value", column_value);
 
+                long deliveryTag = envelope.getDeliveryTag();
                 channel.basicAck(deliveryTag, false);
             }
         });
