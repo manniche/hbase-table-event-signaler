@@ -75,7 +75,7 @@ public class TableEventSignalerTest {
                                                String trgt_cf,
                                                String sec_idx_cf,
                                                String amq_addr,
-                                               String queue_name) {
+                                               String queueName) {
         Map<String, String> kvs = new HashMap<>();
         kvs.put("destination_table", destination_table);
         kvs.put("source_column_family", src_cf);
@@ -83,7 +83,7 @@ public class TableEventSignalerTest {
         kvs.put("target_column_family", trgt_cf);
         kvs.put("secondary_index_cf", sec_idx_cf);
         kvs.put("amq_address", amq_addr);
-        kvs.put("queue_name", queue_name);
+        kvs.put("queue_name", queueName);
         return kvs;
     }
 
@@ -168,8 +168,7 @@ public class TableEventSignalerTest {
     @Test
     public void postPutHappyCase() throws Exception {
 
-        final String queueName = "genome";
-        Map<String, String> kvs = configureHBase("assembly", secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, queueName);
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
         setupHBase(kvs);
 
         //simulate population of secondary index as a result of the above
@@ -187,7 +186,7 @@ public class TableEventSignalerTest {
         factory.setUri(amq_default_address);
         com.rabbitmq.client.Connection conn = factory.newConnection();
         com.rabbitmq.client.Channel channel = conn.createChannel();
-        channel.basicConsume(queueName, false, new com.rabbitmq.client.DefaultConsumer(channel) {
+        channel.basicConsume(primaryTableNameString, false, new com.rabbitmq.client.DefaultConsumer(channel) {
             @Override
             public void handleDelivery(String consumerTag,
                                        com.rabbitmq.client.Envelope envelope,
