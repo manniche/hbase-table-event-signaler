@@ -33,13 +33,16 @@ import java.util.Map;
 @RunWith(MockitoJUnitRunner.class)
 public class TableEventSignalerTest {
     private Broker broker;
-    private static final String amq_default_address = "amqp://guest:guest@0.0.0.0:5672/default";
+    private static final String amq_default_address = "amqp://guest:guest@0.0.0.0:5672/hbase_events";
     private static final String primaryTableNameString = "genome";
     private static final String secondaryIdxTableNameString = "genome_index";
+    private static final String downstreamTableNameString = "assembly";
     private static final TableName primaryTableName = TableName.valueOf(primaryTableNameString);
     private static final TableName secondaryIdxTableName = TableName.valueOf(secondaryIdxTableNameString);
+    private static final TableName downstreamTableName = TableName.valueOf(downstreamTableNameString);
     private Table primaryTable;
     private Table secondaryIdxTable;
+    private Table downstreamTable;
 
     private HBaseTestingUtility testingUtility = new HBaseTestingUtility();
 
@@ -108,20 +111,23 @@ public class TableEventSignalerTest {
 
         HBaseAdmin hbAdmin = testingUtility.getHBaseAdmin();
 
-        System.out.println(String.format("Create secondary index %s", secondaryIdxTableNameString));
         HTableDescriptor secIdxTableDesc = new HTableDescriptor(secondaryIdxTableName);
         secIdxTableDesc.addFamily(new HColumnDescriptor("a"));
         hbAdmin.createTable(secIdxTableDesc);
 
-        System.out.println(String.format("Creating table %s", primaryTableName));
         HTableDescriptor primaryTableDesc = new HTableDescriptor(primaryTableName);
         primaryTableDesc.addFamily(new HColumnDescriptor("e"));
         // Load the coprocessor on the primary table
         primaryTableDesc.addCoprocessor(TableEventSignaler.class.getName(), null, Coprocessor.PRIORITY_USER, kvs);
         hbAdmin.createTable(primaryTableDesc);
 
+        HTableDescriptor downstreamTableDesc = new HTableDescriptor(downstreamTableName);
+        downstreamTableDesc.addFamily(new HColumnDescriptor("eg".getBytes()));
+        hbAdmin.createTable(downstreamTableDesc);
+
         secondaryIdxTable = testingUtility.getConnection().getTable(secondaryIdxTableName);
         primaryTable = testingUtility.getConnection().getTable(primaryTableName);
+        downstreamTable = testingUtility.getConnection().getTable(downstreamTableName);
     }
 
     @After
@@ -146,6 +152,7 @@ public class TableEventSignalerTest {
             brokerOptions.setConfigProperty("qpid.pass_file", getResourcePath(passwordFileName));
             brokerOptions.setConfigProperty("qpid.work_dir", Files.createTempDir().getAbsolutePath());
             brokerOptions.setInitialConfigurationLocation(getResourcePath(configFileName));
+            brokerOptions.setStartupLoggedToSystemOut(true);
 
             // start broker
             broker = new Broker();
@@ -203,18 +210,78 @@ public class TableEventSignalerTest {
                 Map<String, Object> headers = properties.getHeaders();
                 Assert.assertEquals("An action should be set on the message", "put", headers.get("action"));
 
-
                 JSONObject jo = new JSONObject(body);
-                String column_family = (String)jo.get("column_family");
+                String column_family = (String) jo.get("column_family");
                 Assert.assertEquals("Column family should be preserved in the message body", "e", column_family);
 
-                String column_value = (String)jo.get("column_value");
+                String column_value = (String) jo.get("column_value");
                 Assert.assertEquals("Column value should be preserved in the message body", "some_value", column_value);
 
                 long deliveryTag = envelope.getDeliveryTag();
                 channel.basicAck(deliveryTag, false);
             }
         });
+    }
 
+    @Test
+    public void postDeleteHappyCase() throws Exception {
+
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        setupHBase(kvs);
+        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
+        factory.setUri(amq_default_address);
+        com.rabbitmq.client.Connection conn = factory.newConnection();
+        com.rabbitmq.client.Channel channel = conn.createChannel();
+
+
+        //simulate population of secondary index for a put on the downstreamTable
+        Put idxPut = new Put("EFG1".getBytes());
+        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
+        secondaryIdxTable.put(idxPut);
+
+        //simulate a data rippling performed by the data_rippler service consuming off of the rabbitmq queue
+        Put tablePut = new Put("EFB1".getBytes());
+        tablePut.addColumn("eg".getBytes(), "some_key".getBytes(), "some_value".getBytes());
+        downstreamTable.put(tablePut);
+
+        // since we made no active put to the queue fromt the postPut, we need to declare it explicitly here
+        channel.queueDeclare(primaryTableNameString, true, false, false, null);
+
+        // finished with the setup, we now issue a delete which should be caught by the rabbitmq
+        Delete d = new Delete("EFG1".getBytes());
+        d.addColumn("e".getBytes(), "some_key".getBytes());
+
+        //check that values made it to the queue
+        channel.basicConsume(primaryTableNameString, false, new com.rabbitmq.client.DefaultConsumer(channel) {
+            @Override
+            public void handleDelivery(String consumerTag,
+                                       com.rabbitmq.client.Envelope envelope,
+                                       com.rabbitmq.client.AMQP.BasicProperties properties,
+                                       byte[] body)
+                    throws IOException {
+                String routingKey = envelope.getRoutingKey();
+
+                Assert.assertEquals("Routing key should be rowkey", "EFG1", routingKey);
+                String contentType = properties.getContentType();
+
+                Assert.assertEquals("Content type should be preserved", "application/json", contentType);
+
+                Map<String, Object> headers = properties.getHeaders();
+                Assert.assertEquals("An action should be set on the message", "delete", headers.get("action"));
+
+                JSONObject jo = new JSONObject(body);
+                String column_family = (String) jo.get("column_family");
+                Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
+
+                String column_value = (String) jo.get("column_value");
+                Assert.assertEquals("Column value should be preserved in the message body", "some_key", column_value);
+
+                String secondary_index = (String) jo.get("secondary_index");
+                Assert.assertEquals("The data rippler should know where to lookup the routing key", "genome_index", secondary_index);
+
+                long deliveryTag = envelope.getDeliveryTag();
+                channel.basicAck(deliveryTag, false);
+            }
+        });
     }
 }

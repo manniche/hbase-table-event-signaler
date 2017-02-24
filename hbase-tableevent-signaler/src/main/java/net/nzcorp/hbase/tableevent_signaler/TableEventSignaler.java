@@ -134,7 +134,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         /*
          * The fully qualified amqp_conn string to the amqp server
          *
-         * e.g.  amqp://guest:guest@rabbitmq:5672/airflow
+         * e.g.  amqp://guest:guest@rabbitmq:5672/hbase_events
          */
          amq_address = env.getConfiguration().get("amq_address");
 
@@ -238,12 +238,7 @@ public class TableEventSignaler extends BaseRegionObserver {
                 }
                 LOGGER.trace("Creating channel");
                 com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
-                if(channel == null) {
-                    String err = String.format("Failed to create a channel off %s (which reports %s on asked whether it is open). Have not signaled for %s", amqp_conn.getAddress().getCanonicalHostName(), amqp_conn.isOpen(), new String(rowKey));
-                    LOGGER.error(err);
-                    throw new CoprocessorException(err);
-                }
-                LOGGER.debug(String.format("Created channel %s", channel.toString()));
+                LOGGER.debug(String.format("Connecting to queue", queue_name));
                 AMQP.Queue.DeclareOk declareOk = channel.queueDeclare(queue_name, true, false, false, null);
                 LOGGER.info(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
 
@@ -252,7 +247,6 @@ public class TableEventSignaler extends BaseRegionObserver {
                         headers,
                         message.getBytes());
                 LOGGER.info("Sent message");
-                channel.close();
             }
 
             long endTime = System.nanoTime();
@@ -275,12 +269,21 @@ public class TableEventSignaler extends BaseRegionObserver {
         } catch (InvocationTargetException e) {
             LOGGER.error("In trying to invoke the Mutation::getCellList, an error occurred", e);
             throw new CoprocessorException(e.getMessage());
-        } catch (TimeoutException e) {
-            LOGGER.error("Timed out while trying to close the channel on rabbitmq");
-            throw new CoprocessorException(e.getMessage());
         }
     }
 
+    @Override
+    public void postDelete(ObserverContext<RegionCoprocessorEnvironment> e,
+                           Delete delete,
+                           WALEdit edit,
+                           Durability durability) throws IOException {
+        /*
+        1. Get
+
+
+         */
+
+    }
 
     private void initAMQConnection() throws IOException {
         try {
