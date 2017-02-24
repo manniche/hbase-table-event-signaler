@@ -1,10 +1,10 @@
 package net.nzcorp.hbase.tableevent_signaler;
 
 import com.rabbitmq.client.AMQP;
-import com.rabbitmq.client.BuiltinExchangeType;
 import net.nzcorp.amqp.types.ContentType;
 import net.nzcorp.amqp.types.DeliveryType;
 
+import net.nzcorp.coprocessor.HookAction;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
@@ -219,13 +219,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             for (Cell cell : list_of_cells) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
 
-                Map<String,Object> customHeader = new HashMap<>();
-                customHeader.put("action", "put");
-                AMQP.BasicProperties headers = new AMQP.BasicProperties.Builder().
-                        contentType(ContentType.JSON).
-                        priority(1).
-                        headers(customHeader).
-                        deliveryMode(DeliveryType.PERSISTENT).build();
+                AMQP.BasicProperties headers = constructBasicProperties(HookAction.PUT);
                 String message = constructJsonObject(cell, rowKey);
 
 
@@ -287,6 +281,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
     }
 
+
     private void initAMQConnection() throws IOException {
         try {
             LOGGER.info(String.format("Trying to connect to amqp://%s:****@%s:%s/%s", factory.getUsername(), factory.getHost(), factory.getPort(), factory.getVirtualHost()));
@@ -297,11 +292,17 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
     }
 
+    private AMQP.BasicProperties constructBasicProperties(String action) {
+        Map<String,Object> customHeader = new HashMap<>();
+        customHeader.put("action", action);
+        return new AMQP.BasicProperties.Builder().
+                contentType(ContentType.JSON).
+                priority(1).
+                headers(customHeader).
+                deliveryMode(DeliveryType.PERSISTENT).build();
+    }
+
     private String constructJsonObject(Cell cell, byte[] rowKey) {
-        /*
-         * If build_cache == true, we retrieve target keys from the secondary index and send them along in the
-         * json message
-        */
 
         JSONObject jo = new JSONObject();
 
