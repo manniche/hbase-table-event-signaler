@@ -1,6 +1,6 @@
 {
   "name" : "EmbeddedBroker",
-  "defaultVirtualHost" : "default",
+  "defaultVirtualHost" : "hbase_events",
   "modelVersion" : "1.0",
   "storeVersion" : 1,
   "authenticationproviders" : [ {
@@ -15,7 +15,7 @@
     "authenticationProvider" : "passwordFile"
   } ],
   "virtualhostnodes" : [ {
-    "name" : "default",
+    "name" : "hbase_events",
     "type" : "JSON",
     "defaultVirtualHostNode" : "true",
     "virtualHostInitialConfiguration" : "{\"type\" : \"DERBY\"}"
