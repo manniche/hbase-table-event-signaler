@@ -241,6 +241,7 @@ public class TableEventSignaler extends BaseRegionObserver {
                 }
                 LOGGER.trace("Creating channel");
                 com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
+                LOGGER.debug(String.format("Created channel %s", channel.toString()));
                 AMQP.Queue.DeclareOk declareOk = channel.queueDeclare(queue_name, true, false, false, null);
                 LOGGER.info(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
 
@@ -249,6 +250,7 @@ public class TableEventSignaler extends BaseRegionObserver {
                         headers,
                         message.getBytes());
                 LOGGER.info("Sent message");
+                channel.close();
             }
 
             long endTime = System.nanoTime();
@@ -270,6 +272,9 @@ public class TableEventSignaler extends BaseRegionObserver {
             throw new CoprocessorException(e.getMessage());
         } catch (InvocationTargetException e) {
             LOGGER.error("In trying to invoke the Mutation::getCellList, an error occurred", e);
+            throw new CoprocessorException(e.getMessage());
+        } catch (TimeoutException e) {
+            LOGGER.error("Timed out while trying to close the channel on rabbitmq");
             throw new CoprocessorException(e.getMessage());
         }
     }
