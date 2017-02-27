@@ -241,6 +241,11 @@ public class TableEventSignaler extends BaseRegionObserver {
                 }
                 LOGGER.trace("Creating channel");
                 com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
+                if(channel == null) {
+                    String err = String.format("Failed to create a channel off %s (which reports %s on asked whether it is open). Have not signaled for %s", amqp_conn.getAddress().getCanonicalHostName(), amqp_conn.isOpen(), new String(rowKey));
+                    LOGGER.error(err);
+                    throw new CoprocessorException(err);
+                }
                 LOGGER.debug(String.format("Created channel %s", channel.toString()));
                 AMQP.Queue.DeclareOk declareOk = channel.queueDeclare(queue_name, true, false, false, null);
                 LOGGER.info(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
