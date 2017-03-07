@@ -238,7 +238,7 @@ public class TableEventSignaler extends BaseRegionObserver {
                 }
                 LOGGER.trace("Creating channel");
                 com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
-                LOGGER.debug(String.format("Connecting to queue", queue_name));
+                LOGGER.debug(String.format("Connecting to queue %s", queue_name));
                 AMQP.Queue.DeclareOk declareOk = channel.queueDeclare(queue_name, true, false, false, null);
                 LOGGER.info(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
 
@@ -273,16 +273,78 @@ public class TableEventSignaler extends BaseRegionObserver {
     }
 
     @Override
-    public void postDelete(ObserverContext<RegionCoprocessorEnvironment> e,
+    public void preDelete(ObserverContext<RegionCoprocessorEnvironment> e,
                            Delete delete,
                            WALEdit edit,
                            Durability durability) throws IOException {
-        /*
-        1. Get
+        long startTime = System.nanoTime();
 
+        try {
+            Method meth = Mutation.class.getDeclaredMethod("getCellList", byte[].class);
+            meth.setAccessible(true);
+            List<Cell> list_of_cells = (List<Cell>) meth.invoke(delete, sourceCF.getBytes());
 
-         */
+            if (list_of_cells.isEmpty()) {
+                LOGGER.info("No cells in this transaction, noop");
+                return;
+            }
 
+            LOGGER.debug("Found " + Integer.toString(list_of_cells.size()) + " cells in Delete");
+
+            boolean isRowDelete = true;
+            for (Cell cell : list_of_cells) {
+                if (CellUtil.cloneQualifier(cell).length > 0) {
+                    isRowDelete = false;
+                }
+            }
+
+            if(! isRowDelete)
+            {
+                LOGGER.debug("Is not a row deletion, noop");
+                return;
+            }
+
+            for (Cell cell : list_of_cells) {
+                final byte[] rowKey = CellUtil.cloneRow(cell);
+
+                AMQP.BasicProperties headers = constructBasicProperties(HookAction.DELETE);
+                String message = constructJsonObject(cell, rowKey);
+
+                LOGGER.info(String.format("constructed message for %s", new String(rowKey)));
+                LOGGER.info(String.format("connection is open: %s", amqp_conn.isOpen()));
+                if(! amqp_conn.isOpen()) {
+                    LOGGER.info("Unexpectedly, we have no active connection to AMQP, trying to reconnect now");
+                    initAMQConnection();
+                    LOGGER.info(String.format("Are we connected? %s", amqp_conn.isOpen()));
+                    if(! amqp_conn.isOpen())
+                    {
+                        String err = String.format("Failed in reconnecting to AMQP @ %s", amq_address);
+                        LOGGER.error(err);
+                        throw new IOException(err);
+                    }
+                }
+                LOGGER.trace("Creating channel");
+                com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
+                LOGGER.debug(String.format("Connecting to queue", queue_name));
+                AMQP.Queue.DeclareOk declareOk = channel.queueDeclare(queue_name, true, false, false, null);
+                LOGGER.info(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
+
+                channel.basicPublish("",
+                        queue_name,
+                        headers,
+                        message.getBytes());
+                LOGGER.info("Sent message");
+            }
+
+            long endTime = System.nanoTime();
+            double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
+            LOGGER.info(String.format("Exiting postPut, took %f seconds from start", elapsedTime));
+
+        } catch (NoSuchMethodException | IllegalAccessException e1) {
+            e1.printStackTrace();
+        } catch (InvocationTargetException e2) {
+            LOGGER.fatal(e);
+        }
     }
 
     private void initAMQConnection() throws IOException {

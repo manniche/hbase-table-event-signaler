@@ -1,8 +1,12 @@
 package net.nzcorp.hbase.tableevent_signaler;
 
 import com.google.common.io.Files;
+import com.rabbitmq.client.GetResponse;
 import org.apache.hadoop.hbase.*;
-import org.apache.hadoop.hbase.client.*;
+import org.apache.hadoop.hbase.client.Delete;
+import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Table;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
@@ -16,7 +20,6 @@ import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -33,7 +36,7 @@ import java.util.Map;
 @RunWith(MockitoJUnitRunner.class)
 public class TableEventSignalerTest {
     private Broker broker;
-    private static final String amq_default_address = "amqp://guest:guest@0.0.0.0:5672/hbase_events";
+    private static final String amq_default_address = "amqp://guest:guest@0.0.0.0:25672/hbase_events";
     private static final String primaryTableNameString = "genome";
     private static final String secondaryIdxTableNameString = "genome_index";
     private static final String downstreamTableNameString = "assembly";
@@ -148,7 +151,7 @@ public class TableEventSignalerTest {
             getResourcePath(configFileName);
             getResourcePath(passwordFileName);
             BrokerOptions brokerOptions = new BrokerOptions();
-            brokerOptions.setConfigProperty("qpid.amqp_port", "5672");
+            brokerOptions.setConfigProperty("qpid.amqp_port", "25672");
             brokerOptions.setConfigProperty("qpid.pass_file", getResourcePath(passwordFileName));
             brokerOptions.setConfigProperty("qpid.work_dir", Files.createTempDir().getAbsolutePath());
             brokerOptions.setInitialConfigurationLocation(getResourcePath(configFileName));
@@ -193,38 +196,40 @@ public class TableEventSignalerTest {
         factory.setUri(amq_default_address);
         com.rabbitmq.client.Connection conn = factory.newConnection();
         com.rabbitmq.client.Channel channel = conn.createChannel();
-        channel.basicConsume(primaryTableNameString, false, new com.rabbitmq.client.DefaultConsumer(channel) {
-            @Override
-            public void handleDelivery(String consumerTag,
-                                       com.rabbitmq.client.Envelope envelope,
-                                       com.rabbitmq.client.AMQP.BasicProperties properties,
-                                       byte[] body)
-                    throws IOException {
-                String routingKey = envelope.getRoutingKey();
+        System.out.println(String.format("Test: connecting to %s", primaryTableNameString));
 
-                Assert.assertEquals("Routing key should be rowkey", "EFG1", routingKey);
-                String contentType = properties.getContentType();
-
-                Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-
-                Map<String, Object> headers = properties.getHeaders();
-                Assert.assertEquals("An action should be set on the message", "put", headers.get("action"));
-
-                JSONObject jo = new JSONObject(body);
-                String column_family = (String) jo.get("column_family");
-                Assert.assertEquals("Column family should be preserved in the message body", "e", column_family);
-
-                String column_value = (String) jo.get("column_value");
-                Assert.assertEquals("Column value should be preserved in the message body", "some_value", column_value);
-
-                long deliveryTag = envelope.getDeliveryTag();
-                channel.basicAck(deliveryTag, false);
+        while( true ) {
+            GetResponse response = channel.basicGet(primaryTableNameString, false);
+            if( response == null)//busy-wait until the message has made it through the MQ
+            {
+                continue;
             }
-        });
+            String routingKey = response.getEnvelope().getRoutingKey();
+            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
+
+            String contentType = response.getProps().getContentType();
+            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
+
+            Map<String, Object> headers = response.getProps().getHeaders();
+            Assert.assertEquals("An action should be set on the message", "put", headers.get("action").toString());
+
+            byte[] body = response.getBody();
+
+            JSONObject jo = new JSONObject(new String(body));
+            String column_family = (String) jo.get("column_family");
+            Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
+
+            String column_value = (String) jo.get("column_value");
+            Assert.assertEquals("Column value should be preserved in the message body", "some_value", column_value);
+
+            long deliveryTag = response.getEnvelope().getDeliveryTag();
+            channel.basicAck(deliveryTag, false);
+            break;
+        }
     }
 
     @Test
-    public void postDeleteHappyCase() throws Exception {
+    public void preDeleteHappyCase() throws Exception {
 
         Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
         setupHBase(kvs);
@@ -249,39 +254,33 @@ public class TableEventSignalerTest {
 
         // finished with the setup, we now issue a delete which should be caught by the rabbitmq
         Delete d = new Delete("EFG1".getBytes());
-        d.addColumn("e".getBytes(), "some_key".getBytes());
+        primaryTable.delete(d);
 
         //check that values made it to the queue
-        channel.basicConsume(primaryTableNameString, false, new com.rabbitmq.client.DefaultConsumer(channel) {
-            @Override
-            public void handleDelivery(String consumerTag,
-                                       com.rabbitmq.client.Envelope envelope,
-                                       com.rabbitmq.client.AMQP.BasicProperties properties,
-                                       byte[] body)
-                    throws IOException {
-                String routingKey = envelope.getRoutingKey();
-
-                Assert.assertEquals("Routing key should be rowkey", "EFG1", routingKey);
-                String contentType = properties.getContentType();
-
-                Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-
-                Map<String, Object> headers = properties.getHeaders();
-                Assert.assertEquals("An action should be set on the message", "delete", headers.get("action"));
-
-                JSONObject jo = new JSONObject(body);
-                String column_family = (String) jo.get("column_family");
-                Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
-
-                String column_value = (String) jo.get("column_value");
-                Assert.assertEquals("Column value should be preserved in the message body", "some_key", column_value);
-
-                String secondary_index = (String) jo.get("secondary_index");
-                Assert.assertEquals("The data rippler should know where to lookup the routing key", "genome_index", secondary_index);
-
-                long deliveryTag = envelope.getDeliveryTag();
-                channel.basicAck(deliveryTag, false);
+        while( true ) {
+            GetResponse response = channel.basicGet(primaryTableNameString, false);
+            if( response == null)//busy-wait until the message has made it through the MQ
+            {
+                continue;
             }
-        });
+            String routingKey = response.getEnvelope().getRoutingKey();
+            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
+
+            String contentType = response.getProps().getContentType();
+            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
+
+            Map<String, Object> headers = response.getProps().getHeaders();
+            Assert.assertEquals("An action should be set on the message", "delete", headers.get("action").toString());
+
+            byte[] body = response.getBody();
+            JSONObject jo = new JSONObject(new String(body));
+
+            String column_qualifier = (String) jo.get("column_qualifier");
+            Assert.assertEquals("Column qualifier should be empty, signalling a row delete", "", column_qualifier);
+
+            long deliveryTag = response.getEnvelope().getDeliveryTag();
+            channel.basicAck(deliveryTag, false);
+            break;
+        }
     }
 }
