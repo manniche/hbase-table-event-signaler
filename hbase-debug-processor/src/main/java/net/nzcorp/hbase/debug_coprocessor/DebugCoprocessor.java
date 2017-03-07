@@ -16,7 +16,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
-//remember to add the hbase dependencies to the pom file
 @SuppressWarnings("unused")
 public class DebugCoprocessor extends BaseRegionObserver {
 
@@ -37,18 +36,17 @@ public class DebugCoprocessor extends BaseRegionObserver {
          * the above configuration element
          */
 
-        conn = ConnectionFactory.createConnection( env.getConfiguration() );
+        conn = ConnectionFactory.createConnection(env.getConfiguration());
 
         full_debug = env.getConfiguration().get("full_debug");
-        f_debug = Boolean.parseBoolean( full_debug );
+        f_debug = Boolean.parseBoolean(full_debug);
 
         sourceCF = env.getConfiguration().get("source_column_family");
-        if( sourceCF == null )
-        {
+        if (sourceCF == null) {
             LOGGER.fatal("source_column_family was not set!");
         }
 
-        LOGGER.info( String.format( "Are we on FULL DEBUG? %s", f_debug));
+        LOGGER.info(String.format("Are we on FULL DEBUG? %s", f_debug));
     }
 
     @Override
@@ -56,8 +54,7 @@ public class DebugCoprocessor extends BaseRegionObserver {
                         final Put put,
                         final WALEdit edit,
                         final Durability durability_enum)
-            throws IOException
-    {
+            throws IOException {
         try {
             long startTime = System.nanoTime();
 
@@ -70,30 +67,59 @@ public class DebugCoprocessor extends BaseRegionObserver {
                 return;
             }
 
-            LOGGER.info("Found "+Integer.toString(list_of_cells.size())+" cells in Put");
+            LOGGER.info("Found " + Integer.toString(list_of_cells.size()) + " cells in Put");
 
-            if( f_debug )
-            {
-                for (Cell cell: list_of_cells) {
+            if (f_debug) {
+                for (Cell cell : list_of_cells) {
                     final byte[] rowKey = CellUtil.cloneRow(cell);
                     LOGGER.info(String.format("Found rowkey: %s", new String(rowKey)));
                 }
             }
 
             long endTime = System.nanoTime();
-            long elapsedTime = (endTime - startTime)/1000000;
-            LOGGER.info( String.format( "Exiting postPut, took %d%n milliseconds", elapsedTime ));
+            long elapsedTime = (endTime - startTime) / 1000000;
+            LOGGER.info(String.format("Exiting postPut, took %d%n milliseconds", elapsedTime));
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
             throw new IllegalArgumentException(ex);
-        } catch (NoSuchMethodException e) {
-            LOGGER.fatal( e );
-        } catch (InvocationTargetException e) {
-            LOGGER.fatal( e );
-        } catch (IllegalAccessException e) {
-            LOGGER.fatal( e );
+        } catch (NoSuchMethodException | InvocationTargetException | IllegalAccessException e) {
+            LOGGER.fatal(e);
         }
 
+    }
+
+    @Override
+    public void preDelete(ObserverContext<RegionCoprocessorEnvironment> e,
+                          Delete delete,
+                          WALEdit edit,
+                          Durability durability) throws IOException {
+        Method meth = null;
+        try {
+            meth = Mutation.class.getDeclaredMethod("getCellList", byte[].class);
+            meth.setAccessible(true);
+            List<Cell> list_of_cells = (List<Cell>) meth.invoke(delete, sourceCF.getBytes());
+
+            if (list_of_cells.isEmpty()) {
+                LOGGER.info("No cells in this transaction");
+                return;
+            }
+
+            LOGGER.info("Found " + Integer.toString(list_of_cells.size()) + " cells in Delete");
+
+            boolean isRowDelete = true;
+            for (Cell cell : list_of_cells) {
+                if (CellUtil.cloneQualifier(cell).length > 0) {
+                    isRowDelete = false;
+                }
+            }
+
+            System.out.println(isRowDelete);
+
+        } catch (NoSuchMethodException | IllegalAccessException e1) {
+            e1.printStackTrace();
+        } catch (InvocationTargetException e2) {
+            LOGGER.fatal(e);
+        }
     }
 
     @Override

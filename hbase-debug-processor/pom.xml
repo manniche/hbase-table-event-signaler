@@ -17,8 +17,8 @@
             <artifactId>maven-compiler-plugin</artifactId>
 	    <version>3.5.1</version>
             <configuration>
-                <source>1.6</source>
-                <target>1.6</target>
+                <source>1.8</source>
+                <target>1.8</target>
             </configuration>
         </plugin>
     </plugins>
@@ -26,9 +26,30 @@
   <dependencies>
     <dependency>
       <groupId>org.apache.hbase</groupId>
+      <artifactId>hbase-testing-util</artifactId>
+      <version>1.1.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hbase</groupId>
       <artifactId>hbase-server</artifactId>
       <version>1.1.2</version>
     </dependency>
+      <dependency>
+          <groupId>commons-logging</groupId>
+          <artifactId>commons-logging</artifactId>
+          <version>1.2</version>
+      </dependency>
+      <dependency>
+          <groupId>org.apache.hbase</groupId>
+          <artifactId>hbase-common</artifactId>
+          <version>1.1.2</version>
+      </dependency>
+      <dependency>
+          <groupId>org.apache.hbase</groupId>
+          <artifactId>hbase-client</artifactId>
+          <version>1.1.2</version>
+      </dependency>
   </dependencies>
 </project>
 
