@@ -3,10 +3,7 @@ package net.nzcorp.hbase.tableevent_signaler;
 import com.google.common.io.Files;
 import com.rabbitmq.client.GetResponse;
 import org.apache.hadoop.hbase.*;
-import org.apache.hadoop.hbase.client.Delete;
-import org.apache.hadoop.hbase.client.HBaseAdmin;
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorHost;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
@@ -176,7 +173,7 @@ public class TableEventSignalerTest {
 
 
     @Test
-    public void postPutHappyCase() throws Exception {
+    public void prePutHappyCase() throws Exception {
 
         Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
         setupHBase(kvs);
@@ -198,9 +195,9 @@ public class TableEventSignalerTest {
         com.rabbitmq.client.Channel channel = conn.createChannel();
         System.out.println(String.format("Test: connecting to %s", primaryTableNameString));
 
-        while( true ) {
+        while (true) {
             GetResponse response = channel.basicGet(primaryTableNameString, false);
-            if( response == null)//busy-wait until the message has made it through the MQ
+            if (response == null)//busy-wait until the message has made it through the MQ
             {
                 continue;
             }
@@ -225,6 +222,28 @@ public class TableEventSignalerTest {
             long deliveryTag = response.getEnvelope().getDeliveryTag();
             channel.basicAck(deliveryTag, false);
             break;
+        }
+    }
+
+    @Test
+    public void prePostErrorOnUnavailableAMQP() throws Exception {
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        setupHBase(kvs);
+        broker.shutdown(13); //unlucky broker
+
+        //simulate population of secondary index as a result of the above
+        Put idxPut = new Put("EFG1".getBytes());
+        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
+        secondaryIdxTable.put(idxPut);
+
+        // Add a column to the primary table, which should trigger a data ripple to the downstream table
+        Put tablePut = new Put("EFG1".getBytes());
+        tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
+        try {
+            primaryTable.put(tablePut);
+        } catch (RetriesExhaustedWithDetailsException e) {
+            Assert.assertEquals("Exception type should be java.net.ConnectException", java.net.ConnectException.class, e.getCause(0).getClass());
+            Assert.assertEquals("Exception text should be present", "Failed 1 action: ConnectException: 1 time, ", e.getMessage());
         }
     }
 
@@ -257,9 +276,9 @@ public class TableEventSignalerTest {
         primaryTable.delete(d);
 
         //check that values made it to the queue
-        while( true ) {
+        while (true) {
             GetResponse response = channel.basicGet(primaryTableNameString, false);
-            if( response == null)//busy-wait until the message has made it through the MQ
+            if (response == null)//busy-wait until the message has made it through the MQ
             {
                 continue;
             }

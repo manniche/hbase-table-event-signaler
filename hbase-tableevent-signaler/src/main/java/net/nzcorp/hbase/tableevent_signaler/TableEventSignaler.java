@@ -179,7 +179,7 @@ public class TableEventSignaler extends BaseRegionObserver {
     }
 
     @Override
-    public void postPut(final ObserverContext<RegionCoprocessorEnvironment> observerContext,
+    public void prePut(final ObserverContext<RegionCoprocessorEnvironment> observerContext,
                         final Put put,
                         final WALEdit edit,
                         final Durability durability_enum)
