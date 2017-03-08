@@ -364,6 +364,7 @@ public class TableEventSignaler extends BaseRegionObserver {
                 contentType(ContentType.JSON).
                 priority(1).
                 headers(customHeader).
+                timestamp(new Date()).
                 deliveryMode(DeliveryType.PERSISTENT).build();
     }
 
