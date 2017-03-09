@@ -7,10 +7,7 @@ import net.nzcorp.amqp.types.DeliveryType;
 import net.nzcorp.coprocessor.HookAction;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.Cell;
-import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.CoprocessorEnvironment;
-import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.CoprocessorException;
@@ -217,9 +214,21 @@ public class TableEventSignaler extends BaseRegionObserver {
             }
 
             for (Cell cell : list_of_cells) {
+
                 final byte[] rowKey = CellUtil.cloneRow(cell);
 
-                AMQP.BasicProperties headers = constructBasicProperties(HookAction.PUT);
+                boolean isNewRow = isNewEntity(rowKey, observerContext);
+
+                String action;
+                if(isNewRow)
+                {
+                    action = HookAction.PUT;
+                }
+                else {
+                    action = HookAction.UPDATE;
+                }
+
+                AMQP.BasicProperties headers = constructBasicProperties(action);
                 String message = constructJsonObject(cell, rowKey);
 
 
@@ -395,6 +404,14 @@ public class TableEventSignaler extends BaseRegionObserver {
         jo.put("destination_table", destinationTable);
 
         return jo.toString();
+    }
+
+    private boolean isNewEntity(byte[] rowKey,  ObserverContext<RegionCoprocessorEnvironment> observerContext) throws IOException {
+        HTableDescriptor tableDesc = observerContext.getEnvironment().getRegion().getTableDesc();
+        ClusterConnection connection = observerContext.getEnvironment().getRegionServerServices().getConnection();
+        Table table = connection.getTable(tableDesc.getTableName());
+        Result result = table.get(new Get(rowKey));
+        return result.size() == 0;
     }
 
     @Override

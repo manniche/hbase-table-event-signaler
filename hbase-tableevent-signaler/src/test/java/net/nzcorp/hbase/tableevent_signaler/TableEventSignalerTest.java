@@ -304,6 +304,71 @@ public class TableEventSignalerTest {
     }
 
     @Test
+    public void discernNewPutFromUpdate() throws Exception {
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        setupHBase(kvs);
+
+        //simulate population of secondary index as a result of the above
+        Put idxPut = new Put("EFG1".getBytes());
+        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
+        secondaryIdxTable.put(idxPut);
+
+        /*
+            The first put should be registered as a "put" action, while the second should be registered as an "update"
+            action, thereby signalling different action to be taken by the consumers
+         */
+
+        Put tablePut = new Put("EFG1".getBytes());
+        tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
+        primaryTable.put(tablePut);
+
+        tablePut = new Put("EFG1".getBytes());
+        tablePut.addColumn("e".getBytes(), "some_other_key".getBytes(), "some_value".getBytes());
+        primaryTable.put(tablePut);
+
+        //check that values made it to the queue
+        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
+        factory.setUri(amq_default_address);
+        com.rabbitmq.client.Connection conn = factory.newConnection();
+        com.rabbitmq.client.Channel channel = conn.createChannel();
+        int msgs_to_consume = 2;
+        while (msgs_to_consume > 0) {
+            System.out.println(String.format("Messages to get: %s", msgs_to_consume));
+            GetResponse response = channel.basicGet(primaryTableNameString, false);
+            if (response == null)//busy-wait until the message has made it through the MQ
+            {
+                continue;
+            }
+            String routingKey = response.getEnvelope().getRoutingKey();
+            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
+
+            String contentType = response.getProps().getContentType();
+            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
+
+            Map<String, Object> headers = response.getProps().getHeaders();
+            byte[] body = response.getBody();
+
+            JSONObject jo = new JSONObject(new String(body));
+            String column_family = (String) jo.get("column_family");
+            Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
+
+            String column_value = (String) jo.get("column_qualifier");
+
+            if(headers.get("action").toString().equals("update")){
+                Assert.assertEquals("Column value should be preserved in the message body", "some_other_key", column_value);
+            }
+            else {
+                Assert.assertEquals("Column value should be preserved in the message body", "some_key", column_value);
+            }
+
+            long deliveryTag = response.getEnvelope().getDeliveryTag();
+            channel.basicAck(deliveryTag, false);
+            msgs_to_consume--;
+        }
+    }
+
+
+    @Test
     public void preDeleteErrorOnUnavailableAMQP() throws Exception {
         Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
         setupHBase(kvs);
@@ -333,5 +398,4 @@ public class TableEventSignalerTest {
             Assert.assertEquals("Exception text should be present", "java.net.ConnectException", e.getCause().getMessage().substring(0, 25));
         }
     }
-
 }
