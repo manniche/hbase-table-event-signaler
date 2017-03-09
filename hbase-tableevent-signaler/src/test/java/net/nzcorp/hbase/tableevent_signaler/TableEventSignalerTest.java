@@ -268,7 +268,7 @@ public class TableEventSignalerTest {
         tablePut.addColumn("eg".getBytes(), "some_key".getBytes(), "some_value".getBytes());
         downstreamTable.put(tablePut);
 
-        // since we made no active put to the queue fromt the postPut, we need to declare it explicitly here
+        // since we made no active put to the queue from the prePut, we need to declare it explicitly here
         channel.queueDeclare(primaryTableNameString, true, false, false, null);
 
         // finished with the setup, we now issue a delete which should be caught by the rabbitmq

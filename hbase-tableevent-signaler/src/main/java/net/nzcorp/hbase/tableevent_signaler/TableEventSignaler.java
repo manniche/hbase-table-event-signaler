@@ -185,7 +185,7 @@ public class TableEventSignaler extends BaseRegionObserver {
                         final Durability durability_enum)
             throws IOException {
         try {
-            LOGGER.trace("Entering DDR#postPut");
+            LOGGER.trace("Entering TES#prePut");
             long startTime = System.nanoTime();
             double lapTime;
 
@@ -223,12 +223,12 @@ public class TableEventSignaler extends BaseRegionObserver {
                 String message = constructJsonObject(cell, rowKey);
 
 
-                LOGGER.info(String.format("constructed message for %s", new String(rowKey)));
-                LOGGER.info(String.format("connection is open: %s", amqp_conn.isOpen()));
+                LOGGER.debug(String.format("constructed message for %s", new String(rowKey)));
+                LOGGER.debug(String.format("connection is open: %s", amqp_conn.isOpen()));
                 if(! amqp_conn.isOpen()) {
-                    LOGGER.info("Unexpectedly, we have no active connection to AMQP, trying to reconnect now");
+                    LOGGER.warn("Unexpectedly, we have no active connection to AMQP, trying to reconnect now");
                     initAMQConnection();
-                    LOGGER.info(String.format("Are we connected? %s", amqp_conn.isOpen()));
+                    LOGGER.info(String.format("After trying reconnect, are we connected? %s", amqp_conn.isOpen()));
                     if(! amqp_conn.isOpen())
                     {
                         String err = String.format("Failed in reconnecting to AMQP @ %s", amq_address);
@@ -240,18 +240,18 @@ public class TableEventSignaler extends BaseRegionObserver {
                 com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
                 LOGGER.debug(String.format("Connecting to queue %s", queue_name));
                 AMQP.Queue.DeclareOk declareOk = channel.queueDeclare(queue_name, true, false, false, null);
-                LOGGER.info(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
+                LOGGER.debug(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
 
                 channel.basicPublish("",
                         queue_name,
                         headers,
                         message.getBytes());
-                LOGGER.info("Sent message");
+                LOGGER.debug("Sent message");
             }
 
             long endTime = System.nanoTime();
             double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
-            LOGGER.info(String.format("Exiting postPut, took %f seconds from start", elapsedTime));
+            LOGGER.debug(String.format("Exiting TES#prePut, took %f seconds from start", elapsedTime));
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
@@ -278,6 +278,7 @@ public class TableEventSignaler extends BaseRegionObserver {
                            WALEdit edit,
                            Durability durability) throws IOException {
         long startTime = System.nanoTime();
+        LOGGER.trace("Entering TES#preDelete");
 
         try {
             Method meth = Mutation.class.getDeclaredMethod("getCellList", byte[].class);
@@ -310,12 +311,12 @@ public class TableEventSignaler extends BaseRegionObserver {
                 AMQP.BasicProperties headers = constructBasicProperties(HookAction.DELETE);
                 String message = constructJsonObject(cell, rowKey);
 
-                LOGGER.info(String.format("constructed message for %s", new String(rowKey)));
-                LOGGER.info(String.format("connection is open: %s", amqp_conn.isOpen()));
+                LOGGER.debug(String.format("constructed message for %s", new String(rowKey)));
+                LOGGER.debug(String.format("connection is open: %s", amqp_conn.isOpen()));
                 if(! amqp_conn.isOpen()) {
-                    LOGGER.info("Unexpectedly, we have no active connection to AMQP, trying to reconnect now");
+                    LOGGER.warn("Unexpectedly, we have no active connection to AMQP, trying to reconnect now");
                     initAMQConnection();
-                    LOGGER.info(String.format("Are we connected? %s", amqp_conn.isOpen()));
+                    LOGGER.debug(String.format("After trying reconnect, are we connected? %s", amqp_conn.isOpen()));
                     if(! amqp_conn.isOpen())
                     {
                         String err = String.format("Failed in reconnecting to AMQP @ %s", amq_address);
@@ -325,20 +326,20 @@ public class TableEventSignaler extends BaseRegionObserver {
                 }
                 LOGGER.trace("Creating channel");
                 com.rabbitmq.client.Channel channel = amqp_conn.createChannel();
-                LOGGER.debug(String.format("Connecting to queue", queue_name));
+                LOGGER.debug(String.format("Connecting to queue %s", queue_name));
                 AMQP.Queue.DeclareOk declareOk = channel.queueDeclare(queue_name, true, false, false, null);
-                LOGGER.info(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
+                LOGGER.debug(String.format("Declared channel with reply: %s", declareOk.protocolMethodName()));
 
                 channel.basicPublish("",
                         queue_name,
                         headers,
                         message.getBytes());
-                LOGGER.info("Sent message");
+                LOGGER.debug("Sent message");
             }
 
             long endTime = System.nanoTime();
             double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
-            LOGGER.info(String.format("Exiting postPut, took %f seconds from start", elapsedTime));
+            LOGGER.debug(String.format("Exiting TES#preDelete, took %f seconds from start", elapsedTime));
 
         } catch (IllegalArgumentException ex) {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
