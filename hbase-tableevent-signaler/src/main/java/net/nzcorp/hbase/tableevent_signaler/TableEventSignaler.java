@@ -99,8 +99,6 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
         LOGGER.info(String.format("destination table set to %s", destinationTable));
 
-        queue_name = env.getConfiguration().get("queue_name");
-
         secondaryIndexTable = env.getConfiguration().get("secondary_index_table");
         if (secondaryIndexTable == null || secondaryIndexTable.isEmpty()) {
             String err = "No value for 'secondary_index_table' specified, aborting coprocessor";
@@ -188,6 +186,8 @@ public class TableEventSignaler extends BaseRegionObserver {
             LOGGER.trace("Entering TES#prePut");
             long startTime = System.nanoTime();
             double lapTime;
+
+            queue_name = observerContext.getEnvironment().getRegionInfo().getTable().getNameAsString();
 
             final String sourceTable = observerContext.getEnvironment().getRegionInfo().getTable().getNameAsString();
 
@@ -280,6 +280,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         long startTime = System.nanoTime();
         LOGGER.trace("Entering TES#preDelete");
 
+        queue_name = e.getEnvironment().getRegionInfo().getTable().getNameAsString();
         try {
             Method meth = Mutation.class.getDeclaredMethod("getCellList", byte[].class);
             meth.setAccessible(true);
