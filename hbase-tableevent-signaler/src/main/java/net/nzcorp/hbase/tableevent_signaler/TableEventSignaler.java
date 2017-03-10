@@ -257,7 +257,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
             //In order not to drop its marbles when the HBase server throws an IllegalArgumentException, we allow the
             // coprocessor to continue operating, thereby allowing the HBase RS to continue operating.
-            // This exception is throws before the secondary index table is opened, so just move along
+            // For this to work, hbase site-conf.xml needs to have 'hbase.coprocessor.abortonerror' set to 'false'
             throw new CoprocessorException(ex.getMessage());
 
         } catch (NoSuchMethodException e) {
@@ -340,10 +340,22 @@ public class TableEventSignaler extends BaseRegionObserver {
             double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
             LOGGER.info(String.format("Exiting postPut, took %f seconds from start", elapsedTime));
 
-        } catch (NoSuchMethodException | IllegalAccessException e1) {
-            e1.printStackTrace();
-        } catch (InvocationTargetException e2) {
-            LOGGER.fatal(e);
+        } catch (IllegalArgumentException ex) {
+            LOGGER.fatal("During the postPut operation, something went horribly wrong", ex);
+            //In order not to drop its marbles when the HBase server throws an IllegalArgumentException, we allow the
+            // coprocessor to continue operating, thereby allowing the HBase RS to continue operating.
+            // For this to work, hbase site-conf.xml needs to have 'hbase.coprocessor.abortonerror' set to 'false'
+            throw new CoprocessorException(ex.getMessage());
+
+        } catch (NoSuchMethodException ex) {
+            LOGGER.error("In trying to acquire reference to the Mutation::getCellList, an error occurred", ex);
+            throw new CoprocessorException(ex.getMessage());
+        } catch (IllegalAccessException ex) {
+            LOGGER.error("In trying to assign the reference to the Mutation::getCellList to a variable, an error occurred", ex);
+            throw new CoprocessorException(ex.getMessage());
+        } catch (InvocationTargetException ex) {
+            LOGGER.error("In trying to invoke the Mutation::getCellList, an error occurred", ex);
+            throw new CoprocessorException(ex.getMessage());
         }
     }
 

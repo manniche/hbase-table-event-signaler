@@ -302,4 +302,36 @@ public class TableEventSignalerTest {
             break;
         }
     }
+
+    @Test
+    public void preDeleteErrorOnUnavailableAMQP() throws Exception {
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        setupHBase(kvs);
+
+        //simulate population of secondary index as a result of the above
+        Put idxPut = new Put("EFG1".getBytes());
+        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
+        secondaryIdxTable.put(idxPut);
+
+        // Add a column to the primary table, which should trigger a data ripple to the downstream table
+        Put tablePut = new Put("EFG1".getBytes());
+        tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
+        primaryTable.put(tablePut);
+
+        Delete d = new Delete("EFG1".getBytes());
+        // finished with the setup, we now issue a delete which should be caught by the rabbitmq broker. Unfortunately,
+        // it dies:
+        broker.shutdown(13); //unlucky broker
+
+        try {
+            primaryTable.delete(d);
+        } catch (RetriesExhaustedWithDetailsException e) {
+            Assert.assertEquals("Exception type should be java.net.ConnectException", java.net.ConnectException.class, e.getCause(0).getClass());
+            Assert.assertEquals("Exception text should be present", "Failed 1 action: ConnectException: 1 time, ", e.getMessage());
+        } catch (RetriesExhaustedException e) {
+            Assert.assertEquals("Exception type is? ", RetriesExhaustedException.class, e.getClass());
+            Assert.assertEquals("Exception text should be present", "java.net.ConnectException", e.getCause().getMessage().substring(0, 25));
+        }
+    }
+
 }
