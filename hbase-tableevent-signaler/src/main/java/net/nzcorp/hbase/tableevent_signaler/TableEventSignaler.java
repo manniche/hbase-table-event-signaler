@@ -195,7 +195,6 @@ public class TableEventSignaler extends BaseRegionObserver {
                     continue;
                 }
                 final Get get = new Get(rowKey.getRowKey());
-                get.setCheckExistenceOnly(true);
                 newRows.put(rowKey, !table.exists(get));
             }
         }
