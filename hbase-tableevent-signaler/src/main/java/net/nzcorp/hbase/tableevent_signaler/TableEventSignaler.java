@@ -32,8 +32,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeoutException;
 
-import static org.apache.zookeeper.ZooDefs.OpCode.delete;
-
 //remember to add the hbase dependencies to the pom file
 public class TableEventSignaler extends BaseRegionObserver {
     private static final Log LOGGER = LogFactory.getLog(TableEventSignaler.class);
@@ -210,7 +208,7 @@ public class TableEventSignaler extends BaseRegionObserver {
                         final WALEdit edit,
                         final Durability durability_enum)
             throws IOException {
-        LOGGER.trace("Entering TES#prePut");
+        LOGGER.debug("Entering TES#prePut");
         final long startTime = System.nanoTime();
 
         final TableName tableName = observerContext.getEnvironment().getRegionInfo().getTable();
@@ -240,10 +238,8 @@ public class TableEventSignaler extends BaseRegionObserver {
             final String message = constructJsonObject(cell, rowKey.getRowKey());
 
             final String queueName = tableName.getNameAsString();
-            LOGGER.info(String.format("Setting queue name to %s", queueName));
             publishMessage(queueName, headers, message);
         }
-
         long endTime = System.nanoTime();
         double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
         LOGGER.debug(String.format("Exiting TES#prePut, took %f seconds from start", elapsedTime));
@@ -255,7 +251,8 @@ public class TableEventSignaler extends BaseRegionObserver {
                            WALEdit edit,
                            Durability durability) throws IOException {
         long startTime = System.nanoTime();
-        LOGGER.trace("Entering TES#preDelete");
+        LOGGER.debug("Entering TES#preDelete");
+
 
         final TableName tableName = e.getEnvironment().getRegionInfo().getTable();
         if (tableName == null) {
@@ -269,7 +266,6 @@ public class TableEventSignaler extends BaseRegionObserver {
 
         final List<Cell> realCellList = new ArrayList<>();
         for (final Cell cell : cellList) {
-            // Why am I doing this???
             if (CellUtil.cloneQualifier(cell).length == 0) {
                 realCellList.add(cell);
             }
@@ -284,6 +280,7 @@ public class TableEventSignaler extends BaseRegionObserver {
 
             publishMessage(queueName, headers, message);
         }
+
 
         long endTime = System.nanoTime();
         double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
@@ -340,11 +337,11 @@ public class TableEventSignaler extends BaseRegionObserver {
         return jo.toString();
     }
 
-    private final ConcurrentHashMap<String, Boolean> channelsCreated = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Boolean> queuesCreated = new ConcurrentHashMap<>();
     private void ensureQueue(final Channel channel, final String queueName) throws IOException {
-        if (!channelsCreated.getOrDefault(queueName, false)) {
+        if (!queuesCreated.getOrDefault(queueName, false)) {
             channel.queueDeclare(queueName, true, false, false, null);
-            channelsCreated.put(queueName, true);
+            queuesCreated.put(queueName, true);
         }
     }
 
