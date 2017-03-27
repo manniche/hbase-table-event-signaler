@@ -240,6 +240,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             final String message = constructJsonObject(cell, rowKey.getRowKey());
 
             final String queueName = tableName.getNameAsString();
+            LOGGER.info(String.format("Setting queue name to %s", queueName));
             publishMessage(queueName, headers, message);
         }
 
