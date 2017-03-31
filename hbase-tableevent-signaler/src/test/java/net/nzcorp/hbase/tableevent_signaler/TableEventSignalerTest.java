@@ -70,6 +70,7 @@ public class TableEventSignalerTest {
      * @param trgt_cf
      * @param sec_idx_cf
      * @param amq_addr
+     * @param send_value
      * @return
      */
     private Map<String, String> configureHBase(String destination_table,
@@ -78,7 +79,8 @@ public class TableEventSignalerTest {
                                                String trgt_cf,
                                                String sec_idx_cf,
                                                String amq_addr,
-                                               String queueName) {
+                                               String queueName,
+                                               String send_value) {
         Map<String, String> kvs = new HashMap<>();
         kvs.put("destination_table", destination_table);
         kvs.put("source_column_family", src_cf);
@@ -87,6 +89,7 @@ public class TableEventSignalerTest {
         kvs.put("secondary_index_cf", sec_idx_cf);
         kvs.put("amq_address", amq_addr);
         kvs.put("queue_name", queueName);
+        kvs.put("send_value", send_value);
         return kvs;
     }
 
@@ -175,7 +178,7 @@ public class TableEventSignalerTest {
     @Test
     public void prePutHappyCase() throws Exception {
 
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true");
         setupHBase(kvs);
 
         //simulate population of secondary index as a result of the above
@@ -226,8 +229,62 @@ public class TableEventSignalerTest {
     }
 
     @Test
+    public void verifyValueNotSentByDefault() throws Exception {
+
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "false");
+        setupHBase(kvs);
+
+        //simulate population of secondary index as a result of the above
+        Put idxPut = new Put("EFG1".getBytes());
+        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
+        secondaryIdxTable.put(idxPut);
+
+        // Add a column to the primary table, which should trigger a data ripple to the downstream table
+        Put tablePut = new Put("EFG1".getBytes());
+        tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
+        primaryTable.put(tablePut);
+
+        //check that values made it to the queue
+        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
+        factory.setUri(amq_default_address);
+        com.rabbitmq.client.Connection conn = factory.newConnection();
+        com.rabbitmq.client.Channel channel = conn.createChannel();
+        System.out.println(String.format("Test: connecting to %s", primaryTableNameString));
+
+        while (true) {
+            GetResponse response = channel.basicGet(primaryTableNameString, false);
+            if (response == null)//busy-wait until the message has made it through the MQ
+            {
+                continue;
+            }
+            String routingKey = response.getEnvelope().getRoutingKey();
+            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
+
+            String contentType = response.getProps().getContentType();
+            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
+
+            Map<String, Object> headers = response.getProps().getHeaders();
+            Assert.assertEquals("An action should be set on the message", "put", headers.get("action").toString());
+
+            byte[] body = response.getBody();
+
+            JSONObject jo = new JSONObject(new String(body));
+            String column_family = (String) jo.get("column_family");
+            Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
+
+            String column_value = (String) jo.get("column_value");
+            Assert.assertEquals("Column value is not sent by default", "", column_value);
+
+            long deliveryTag = response.getEnvelope().getDeliveryTag();
+            channel.basicAck(deliveryTag, false);
+            break;
+        }
+    }
+
+
+    @Test
     public void prePostErrorOnUnavailableAMQP() throws Exception {
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true");
         setupHBase(kvs);
         broker.shutdown(13); //unlucky broker
 
@@ -250,7 +307,7 @@ public class TableEventSignalerTest {
     @Test
     public void preDeleteHappyCase() throws Exception {
 
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true");
         setupHBase(kvs);
         com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
         factory.setUri(amq_default_address);
@@ -305,7 +362,7 @@ public class TableEventSignalerTest {
 
     @Test
     public void discernNewPutFromUpdate() throws Exception {
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true");
         setupHBase(kvs);
 
         //simulate population of secondary index as a result of the above
@@ -370,7 +427,7 @@ public class TableEventSignalerTest {
 
     @Test
     public void preDeleteErrorOnUnavailableAMQP() throws Exception {
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString);
+        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true");
         setupHBase(kvs);
 
         //simulate population of secondary index as a result of the above

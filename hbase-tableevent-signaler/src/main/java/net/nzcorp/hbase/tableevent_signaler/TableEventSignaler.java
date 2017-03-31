@@ -45,27 +45,37 @@ public class TableEventSignaler extends BaseRegionObserver {
      * The table into which the values from the current table should be written into
      */
     private String destinationTable;
+
     /**
      * The table from which the child table rowkeys should be retrieved from
      */
     private String secondaryIndexTable;
+
     /**
      * The column family to find target keys for in the secondary index
      */
     private String secondaryIndexCF;
+
     /**
      * The column family name to use in the destination table
      */
     private String targetCf;
+
     /**
      * The column family name from which to collect values from
      */
     private String sourceCF;
+
     /**
      * Whether to write a ridiculously amount of logging information
      * Use with caution
      */
     private boolean f_debug;
+
+    /**
+     * Toggle whether TES should send the cell value along the with the message to AMQP
+     */
+    private boolean sendValue;
 
     private ConnectionFactory factory;
 
@@ -110,6 +120,9 @@ public class TableEventSignaler extends BaseRegionObserver {
 
         //option to run *expensive* debugging
         f_debug = Boolean.parseBoolean(env.getConfiguration().get("full_debug"));
+
+        //light-weight messages? anything other than -i "tRuE" is false:
+        sendValue = Boolean.parseBoolean(env.getConfiguration().get("send_value"));
 
         /*
          * The fully qualified amqpConn string to the amqp server
@@ -328,7 +341,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         jo.put("row_key", Bytes.toString(rowKey));
         jo.put("column_family", targetCf);
         jo.put("column_qualifier", Bytes.toString(CellUtil.cloneQualifier(cell)));
-        jo.put("column_value", Bytes.toString(CellUtil.cloneValue(cell)));
+        jo.put("column_value", Bytes.toString(sendValue ? CellUtil.cloneValue(cell): new byte[]{}));
         jo.put("secondary_index", secondaryIndexTable);
         jo.put("secondary_index_cf", secondaryIndexCF);
         jo.put("destination_table", destinationTable);
