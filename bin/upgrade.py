@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Usage: 
 # upgrade.py with no arguments will increase the minor version 
