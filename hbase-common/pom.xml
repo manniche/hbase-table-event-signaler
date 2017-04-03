@@ -8,7 +8,7 @@
     <groupId>net.nzcorp.hbase</groupId>
     <artifactId>hbase</artifactId>
     <relativePath>../</relativePath>
-    <version>${project.version}</version>
+    <version>0.8.2</version>
   </parent>
 
   <dependencies>
