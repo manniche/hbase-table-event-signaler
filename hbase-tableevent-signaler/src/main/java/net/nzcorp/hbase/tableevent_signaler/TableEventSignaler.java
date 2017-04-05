@@ -24,6 +24,7 @@ import org.json.JSONObject;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.net.SocketTimeoutException;
 import java.net.URISyntaxException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
@@ -160,11 +161,14 @@ public class TableEventSignaler extends BaseRegionObserver {
             }
             try {
                 amqpConn = factory.newConnection();
+            }catch(SocketTimeoutException e){
+                LOGGER.fatal("Failed to connect to AMQP server", e);
+                throw new IOException(e);
             } catch (IOException e) {
-                LOGGER.fatal("Failed to connect to rabbitmq", e);
+                LOGGER.fatal("Failed to connect to AMQP server", e);
                 throw e;
             } catch (TimeoutException e) {
-                LOGGER.fatal("Failed to connect to rabbitmq", e);
+                LOGGER.fatal("Failed to connect to AMQP server", e);
                 throw new IOException(e);
             }
         }

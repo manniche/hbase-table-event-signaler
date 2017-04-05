@@ -7,7 +7,7 @@
   <parent>
     <groupId>net.nzcorp.hbase</groupId>
     <artifactId>hbase</artifactId>
-    <version>0.8.2</version>
+    <version>0.8.3</version>
     <relativePath>../</relativePath>
   </parent>
 
