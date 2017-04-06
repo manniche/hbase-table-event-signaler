@@ -19,8 +19,7 @@ import com.google.common.base.Strings;
 import com.rabbitmq.client.*;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
-import net.nzcorp.amqp.types.ContentType;
-import net.nzcorp.amqp.types.DeliveryType;
+import net.nzcorp.amqp.Types;
 
 import net.nzcorp.coprocessor.HookAction;
 import org.apache.commons.logging.Log;
@@ -347,11 +346,11 @@ public class TableEventSignaler extends BaseRegionObserver {
         Map<String,Object> customHeader = new HashMap<>();
         customHeader.put("action", action);
         return new AMQP.BasicProperties.Builder().
-                contentType(ContentType.JSON).
+                contentType(Types.ContentType.JSON).
                 priority(1).
                 headers(customHeader).
                 timestamp(new Date()).
-                deliveryMode(DeliveryType.PERSISTENT).build();
+                deliveryMode(Types.DeliveryType.PERSISTENT).build();
     }
 
     private String constructJsonObject(Cell cell, byte[] rowKey) throws UnsupportedEncodingException {
