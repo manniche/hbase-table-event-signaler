@@ -23,7 +23,7 @@
     <groupId>net.nzcorp.hbase</groupId>
     <artifactId>hbase</artifactId>
     <relativePath>../</relativePath>
-    <version>0.8.3</version>
+    <version>0.8.4</version>
   </parent>
 
   <dependencies>

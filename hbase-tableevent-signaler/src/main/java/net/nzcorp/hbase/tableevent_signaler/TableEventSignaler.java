@@ -16,6 +16,7 @@ package net.nzcorp.hbase.tableevent_signaler;
  */
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
 import com.rabbitmq.client.*;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
@@ -92,12 +93,15 @@ public class TableEventSignaler extends BaseRegionObserver {
      */
     private boolean sendValue;
 
+    private Set<String> filterQualifiers;
+
     private ConnectionFactory factory;
 
     private static final double NANOS_TO_SECS = 1000000000.0;
 
     @Override
     public void start(final CoprocessorEnvironment env) throws IOException {
+
         destinationTable = env.getConfiguration().get("destination_table");
         if (Strings.isNullOrEmpty(destinationTable)) {
             String err = "No value for 'destination_tables' specified, aborting coprocessor";
@@ -138,6 +142,13 @@ public class TableEventSignaler extends BaseRegionObserver {
 
         //light-weight messages? anything other than -i "tRuE" is false:
         sendValue = Boolean.parseBoolean(env.getConfiguration().get("send_value"));
+
+	String fqs = env.getConfiguration().get("filter_qualifiers");
+        if ( fqs == null || fqs.length() == 0 ) {
+            filterQualifiers = new HashSet<>();
+        } else {
+            filterQualifiers = Sets.newHashSet(fqs.split("\\|")); 
+        }
 
         /*
          * The fully qualified amqpConn string to the amqp server
@@ -250,7 +261,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         if (cellList == null) {
             return;
         }
-
+	LOGGER.trace(String.format("Found %s cells in put", cellList.size()));
         if (f_debug) {
             for (Cell cell : cellList) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
@@ -259,7 +270,12 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
 
         final Map<RowKey, Boolean> newRows = getNewRows(observerContext.getEnvironment(), tableName, cellList);
+
         for (final Cell cell : cellList) {
+
+            if(!filterQualifiers.isEmpty() && !filterQualifiers.contains(Bytes.toString(CellUtil.cloneQualifier(cell)))) {
+                continue;
+            }
             final RowKey rowKey = new RowKey(cell);
             boolean isNewRow = newRows.get(rowKey);
 
