@@ -145,9 +145,11 @@ public class TableEventSignaler extends BaseRegionObserver {
 
 	String fqs = env.getConfiguration().get("filter_qualifiers");
         if ( fqs == null || fqs.length() == 0 ) {
+            LOGGER.info("No filter qualifiers set, signaling on every event");
             filterQualifiers = new HashSet<>();
         } else {
-            filterQualifiers = Sets.newHashSet(fqs.split("\\|")); 
+            filterQualifiers = Sets.newHashSet(fqs.split("\\|"));
+            LOGGER.info(String.format("%s filters loaded", filterQualifiers.size()));
         }
 
         /*
@@ -261,7 +263,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         if (cellList == null) {
             return;
         }
-	LOGGER.trace(String.format("Found %s cells in put", cellList.size()));
+	    LOGGER.trace(String.format("Found %s cells in put", cellList.size()));
         if (f_debug) {
             for (Cell cell : cellList) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
