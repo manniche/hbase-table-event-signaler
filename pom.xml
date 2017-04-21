@@ -19,11 +19,11 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <hbase.version>1.1.2</hbase.version>
-    <shade_append>v0_8_4</shade_append>
+    <shade_append>v0_8_5_SNAPSHOT</shade_append>
   </properties>
   <groupId>net.nzcorp.hbase</groupId>
   <artifactId>hbase</artifactId>
-  <version>0.8.4</version>
+  <version>0.8.5-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <build>
