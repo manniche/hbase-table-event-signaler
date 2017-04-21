@@ -188,15 +188,12 @@ public class TableEventSignaler extends BaseRegionObserver {
             }
             try {
                 amqpConn = factory.newConnection();
-            }catch(SocketTimeoutException e){
+            } catch (AuthenticationFailureException|SocketTimeoutException|TimeoutException e) {
                 LOGGER.fatal("Failed to connect to AMQP server", e);
                 throw new IOException(e);
-            } catch (IOException e) {
+            } catch (IOException e){
                 LOGGER.fatal("Failed to connect to AMQP server", e);
                 throw e;
-            } catch (TimeoutException e) {
-                LOGGER.fatal("Failed to connect to AMQP server", e);
-                throw new IOException(e);
             }
         }
     }
