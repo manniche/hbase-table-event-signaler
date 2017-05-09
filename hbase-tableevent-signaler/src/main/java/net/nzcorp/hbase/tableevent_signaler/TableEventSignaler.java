@@ -21,7 +21,6 @@ import com.rabbitmq.client.*;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import net.nzcorp.amqp.Types;
-
 import net.nzcorp.coprocessor.HookAction;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -143,7 +142,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         //light-weight messages? anything other than -i "tRuE" is false:
         sendValue = Boolean.parseBoolean(env.getConfiguration().get("send_value"));
 
-	String fqs = env.getConfiguration().get("filter_qualifiers");
+        String fqs = env.getConfiguration().get("filter_qualifiers");
         if ( fqs == null || fqs.length() == 0 ) {
             LOGGER.info("No filter qualifiers set, signaling on every event");
             filterQualifiers = new HashSet<>();
