@@ -97,9 +97,11 @@ public class TableEventSignaler extends BaseRegionObserver {
      */
     private Set<String> filterQualifiers;
 
+    private volatile Map<TableName, Table> tableCache;
+
     private ConnectionFactory factory;
 
-    private static final double NANOS_TO_SECS = 1000000000.0;
+    private static final long NANOS_TO_MS = 1000000;
 
     @Override
     public void start(final CoprocessorEnvironment env) throws IOException {
@@ -176,6 +178,7 @@ public class TableEventSignaler extends BaseRegionObserver {
 
         ensureAmqpConnection();
 
+        tableCache = new HashMap<>();
         LOGGER.info(String.format("Sending from %s#%s: --> %s#%s", secondaryIndexTable, sourceCF, destinationTable, targetCf));
     }
 
@@ -231,17 +234,32 @@ public class TableEventSignaler extends BaseRegionObserver {
     private Map<RowKey, Boolean> getNewRows(final RegionCoprocessorEnvironment env, final TableName tableName, final List<Cell> cells) throws IOException {
         final Map<RowKey, Boolean> newRows = new HashMap<>();
 
-        try (final Table table = env.getTable(tableName)) {
-            for (final Cell cell : cells) {
-                final RowKey rowKey = new RowKey(cell);
-                if (newRows.containsKey(rowKey)) {
-                    continue;
-                }
-                final Get get = new Get(rowKey.getRowKey());
+        Table table = tableCache.containsKey(tableName) ? tableCache.get(tableName) : refreshCache(tableName, env);
+
+        for (final Cell cell : cells) {
+            final RowKey rowKey = new RowKey(cell);
+            if (newRows.containsKey(rowKey)) {
+                continue;
+            }
+            final Get get = new Get(rowKey.getRowKey());
+            try {
                 newRows.put(rowKey, !table.exists(get));
+            } catch (Exception e) {
+                LOGGER.error(String.format("When trying use a cached table for %s, the code threw", tableName), e);
             }
         }
         return newRows;
+    }
+
+    private Table refreshCache(TableName tableName, final RegionCoprocessorEnvironment env) throws IOException {
+        long a = System.nanoTime();
+        LOGGER.info("Trying to obtain connection for " + tableName);
+        synchronized (this) {
+            Table newCacheVal = env.getTable(tableName);
+            LOGGER.debug(String.format("Obtained table ref in %d ms", (System.nanoTime() - a) / NANOS_TO_MS));
+            tableCache.put(tableName, newCacheVal);
+            return newCacheVal;
+        }
     }
 
     @Override
@@ -330,8 +348,8 @@ public class TableEventSignaler extends BaseRegionObserver {
 
 
         long endTime = System.nanoTime();
-        double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
-        LOGGER.debug(String.format("Exiting TES#preDelete, took %f seconds from start", elapsedTime));
+        long elapsedTime = (endTime - startTime) / NANOS_TO_MS;
+        LOGGER.debug(String.format("Exiting TES#preDelete, took %d ms from start", elapsedTime));
     }
 
     private void publishMessage(String queueName, AMQP.BasicProperties headers, String message) throws IOException {
