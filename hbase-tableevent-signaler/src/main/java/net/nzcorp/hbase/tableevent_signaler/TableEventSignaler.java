@@ -21,7 +21,7 @@ import com.rabbitmq.client.*;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import net.nzcorp.amqp.Types;
-import net.nzcorp.coprocessor.HookAction;
+import net.nzcorp.hbase.coprocessor.HookAction;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hbase.Cell;
@@ -83,7 +83,7 @@ public class TableEventSignaler extends BaseRegionObserver {
 
     /**
      * Whether to write a ridiculously amount of logging information
-     * Use with caution
+     * Use with caution as it introduces loops in the code path
      */
     private boolean f_debug;
 
@@ -92,6 +92,9 @@ public class TableEventSignaler extends BaseRegionObserver {
      */
     private boolean sendValue;
 
+    /**
+     * Applies a filtering to which column qualifiers to emit events for
+     */
     private Set<String> filterQualifiers;
 
     private ConnectionFactory factory;
