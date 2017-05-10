@@ -1,18 +1,18 @@
 package net.nzcorp.hbase.tableevent_signaler;
 /**
  * Copyright 2017 NovoZymes A/S
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
+ * <p>
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 import com.google.common.base.Strings;
@@ -118,7 +118,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             LOGGER.fatal(err);
             throw new IllegalArgumentException(err);
         }
-        try(final Table _table = env.getTable(TableName.valueOf(secondaryIndexTable))) {
+        try (final Table _table = env.getTable(TableName.valueOf(secondaryIndexTable))) {
         } catch (IOException e) {
             String err = "Table " + secondaryIndexTable + " does not exist";
             LOGGER.fatal(err);
@@ -146,7 +146,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         sendValue = Boolean.parseBoolean(env.getConfiguration().get("send_value"));
 
         String fqs = env.getConfiguration().get("filter_qualifiers");
-        if ( fqs == null || fqs.length() == 0 ) {
+        if (fqs == null || fqs.length() == 0) {
             LOGGER.info("No filter qualifiers set, signaling on every event");
             filterQualifiers = new HashSet<>();
         } else {
@@ -184,16 +184,16 @@ public class TableEventSignaler extends BaseRegionObserver {
             return;
         }
         // Synchronize connection creation as we don't want multiple threads overwriting each other's connections.
-        synchronized(this) {
+        synchronized (this) {
             if (amqpConn != null && amqpConn.isOpen()) {
                 return;
             }
             try {
                 amqpConn = factory.newConnection();
-            } catch (AuthenticationFailureException|SocketTimeoutException|TimeoutException e) {
+            } catch (AuthenticationFailureException | SocketTimeoutException | TimeoutException e) {
                 LOGGER.fatal("Failed to connect to AMQP server", e);
                 throw new IOException(e);
-            } catch (IOException e){
+            } catch (IOException e) {
                 LOGGER.fatal("Failed to connect to AMQP server", e);
                 throw e;
             }
@@ -246,9 +246,9 @@ public class TableEventSignaler extends BaseRegionObserver {
 
     @Override
     public void prePut(final ObserverContext<RegionCoprocessorEnvironment> observerContext,
-                        final Put put,
-                        final WALEdit edit,
-                        final Durability durability_enum)
+                       final Put put,
+                       final WALEdit edit,
+                       final Durability durability_enum)
             throws IOException {
         LOGGER.debug("Entering TES#prePut");
         final long startTime = System.nanoTime();
@@ -262,7 +262,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         if (cellList == null) {
             return;
         }
-	    LOGGER.trace(String.format("Found %s cells in put", cellList.size()));
+        LOGGER.trace(String.format("Found %s cells in put", cellList.size()));
         if (f_debug) {
             for (Cell cell : cellList) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
@@ -274,7 +274,7 @@ public class TableEventSignaler extends BaseRegionObserver {
 
         for (final Cell cell : cellList) {
 
-            if(!filterQualifiers.isEmpty() && !filterQualifiers.contains(Bytes.toString(CellUtil.cloneQualifier(cell)))) {
+            if (!filterQualifiers.isEmpty() && !filterQualifiers.contains(Bytes.toString(CellUtil.cloneQualifier(cell)))) {
                 continue;
             }
             final RowKey rowKey = new RowKey(cell);
@@ -288,15 +288,15 @@ public class TableEventSignaler extends BaseRegionObserver {
             publishMessage(queueName, headers, message);
         }
         long endTime = System.nanoTime();
-        double elapsedTime = (double) (endTime - startTime) / NANOS_TO_SECS;
-        LOGGER.debug(String.format("Exiting TES#prePut, took %f seconds from start", elapsedTime));
+        long elapsedTime = (endTime - startTime) / NANOS_TO_MS;
+        LOGGER.debug(String.format("Exiting TES#prePut, took %d ms from start", elapsedTime));
     }
 
     @Override
     public void preDelete(ObserverContext<RegionCoprocessorEnvironment> e,
-                           Delete delete,
-                           WALEdit edit,
-                           Durability durability) throws IOException {
+                          Delete delete,
+                          WALEdit edit,
+                          Durability durability) throws IOException {
         long startTime = System.nanoTime();
         LOGGER.debug("Entering TES#preDelete");
 
@@ -360,7 +360,7 @@ public class TableEventSignaler extends BaseRegionObserver {
     }
 
     private AMQP.BasicProperties constructBasicProperties(final String action) {
-        Map<String,Object> customHeader = new HashMap<>();
+        Map<String, Object> customHeader = new HashMap<>();
         customHeader.put("action", action);
         return new AMQP.BasicProperties.Builder().
                 contentType(Types.ContentType.JSON).
@@ -376,7 +376,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         jo.put("row_key", Bytes.toString(rowKey));
         jo.put("column_family", targetCf);
         jo.put("column_qualifier", Bytes.toString(CellUtil.cloneQualifier(cell)));
-        jo.put("column_value", Bytes.toString(sendValue ? CellUtil.cloneValue(cell): new byte[]{}));
+        jo.put("column_value", Bytes.toString(sendValue ? CellUtil.cloneValue(cell) : new byte[]{}));
         jo.put("secondary_index", secondaryIndexTable);
         jo.put("secondary_index_cf", secondaryIndexCF);
         jo.put("destination_table", destinationTable);
@@ -385,6 +385,7 @@ public class TableEventSignaler extends BaseRegionObserver {
     }
 
     private final ConcurrentHashMap<String, Boolean> queuesCreated = new ConcurrentHashMap<>();
+
     private void ensureQueue(final Channel channel, final String queueName) throws IOException {
         if (!queuesCreated.getOrDefault(queueName, false)) {
             channel.queueDeclare(queueName, true, false, false, null);
@@ -393,6 +394,7 @@ public class TableEventSignaler extends BaseRegionObserver {
     }
 
     private final ConcurrentLinkedDeque<Channel> channels = new ConcurrentLinkedDeque<>();
+
     private Channel getChannel() throws IOException {
         ensureAmqpConnection();
 
