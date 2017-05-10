@@ -22,13 +22,57 @@
     <shade_append>v0_8_5_SNAPSHOT</shade_append>
     <dependency.locations.enabled>false</dependency.locations.enabled>
   </properties>
+
   <groupId>net.nzcorp.hbase</groupId>
   <artifactId>hbase</artifactId>
   <version>0.8.5-SNAPSHOT</version>
-  <packaging>pom</packaging>
+  <packaging>jar</packaging>
 
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>1.7.1</version>
+        <configuration>
+          <createDependencyReducedPom>true</createDependencyReducedPom>
+          <filters>
+            <filter>
+              <artifact>*:*</artifact>
+              <excludes>
+                <exclude>META-INF/*.SF</exclude>
+                <exclude>META-INF/*.DSA</exclude>
+                <exclude>META-INF/*.RSA</exclude>
+              </excludes>
+            </filter>
+          </filters>
+        </configuration>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer"/>
+              </transformers>
+              <relocations>
+                <relocation>
+                  <pattern>net.nzcorp</pattern>
+                  <shadedPattern>net.nzcorp.${shade_append}</shadedPattern>
+                  <excludes>
+                    <exclude>java.**</exclude>
+                    <exclude>javax.**</exclude>
+                    <exclude>sun.**</exclude>
+                  </excludes>
+                </relocation>
+              </relocations>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
@@ -45,6 +89,7 @@
       </plugin>
     </plugins>
   </build>
+
   <reporting>
     <plugins>
       <plugin>
@@ -54,7 +99,59 @@
       </plugin>
     </plugins>
   </reporting>
-  <modules>
-    <module>hbase-tableevent-signaler</module>
-  </modules>
+
+  <dependencies>
+      <dependency>
+          <groupId>org.json</groupId>
+          <artifactId>json</artifactId>
+          <version>20160810</version>
+      </dependency>
+      <dependency>
+          <groupId>org.apache.hbase</groupId>
+          <artifactId>hbase-server</artifactId>
+          <version>${hbase.version}</version>
+          <scope>provided</scope>
+          <exclusions>
+              <exclusion>
+                  <groupId>org.slf4j</groupId>
+                  <artifactId>slf4j-log4j12</artifactId>
+              </exclusion>
+          </exclusions>
+      </dependency>
+      <dependency>
+          <groupId>com.rabbitmq</groupId>
+          <artifactId>amqp-client</artifactId>
+          <version>4.0.2</version>
+          <exclusions>
+              <exclusion>
+                  <artifactId>slf4j-api</artifactId>
+                  <groupId>org.slf4j</groupId>
+              </exclusion>
+          </exclusions>
+      </dependency>
+      <dependency>
+          <groupId>org.apache.hbase</groupId>
+          <artifactId>hbase-testing-util</artifactId>
+          <version>${hbase.version}</version>
+          <exclusions>
+              <exclusion>
+                  <groupId>org.slf4j</groupId>
+                  <artifactId>slf4j-log4j12</artifactId>
+              </exclusion>
+          </exclusions>
+          <scope>test</scope>
+      </dependency>
+      <dependency>
+          <groupId>org.mockito</groupId>
+          <artifactId>mockito-core</artifactId>
+          <version>2.2.28</version>
+          <scope>test</scope>
+      </dependency>
+      <dependency>
+          <groupId>org.apache.qpid</groupId>
+          <artifactId>qpid-broker</artifactId>
+          <version>6.1.0</version>
+          <scope>test</scope>
+      </dependency>
+  </dependencies>
 </project>
