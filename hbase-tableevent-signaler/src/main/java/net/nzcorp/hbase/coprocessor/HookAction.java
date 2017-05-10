@@ -1,4 +1,4 @@
-package net.nzcorp.coprocessor;
+package net.nzcorp.hbase.coprocessor;
 
 public final class HookAction {
     public static final String PUT = "put";

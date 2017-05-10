@@ -104,11 +104,6 @@
           </exclusions>
       </dependency>
       <dependency>
-        <groupId>net.nzcorp.hbase</groupId>
-        <artifactId>nzcorp-hbase-common</artifactId>
-        <version>${project.version}</version>
-      </dependency>
-      <dependency>
           <groupId>org.apache.hbase</groupId>
           <artifactId>hbase-testing-util</artifactId>
           <version>${hbase.version}</version>
