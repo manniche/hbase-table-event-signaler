@@ -24,16 +24,14 @@ import net.nzcorp.amqp.Types;
 import net.nzcorp.hbase.coprocessor.HookAction;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hbase.Cell;
-import org.apache.hadoop.hbase.CellUtil;
-import org.apache.hadoop.hbase.CoprocessorEnvironment;
-import org.apache.hadoop.hbase.TableName;
+import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.coprocessor.BaseRegionObserver;
 import org.apache.hadoop.hbase.coprocessor.ObserverContext;
 import org.apache.hadoop.hbase.coprocessor.RegionCoprocessorEnvironment;
 import org.apache.hadoop.hbase.regionserver.wal.WALEdit;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hadoop.util.Time;
 import org.json.JSONObject;
 
 import java.io.IOException;
@@ -45,7 +43,10 @@ import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 //remember to add the hbase dependencies to the pom file
 public class TableEventSignaler extends BaseRegionObserver {
@@ -100,8 +101,6 @@ public class TableEventSignaler extends BaseRegionObserver {
     private volatile Map<TableName, Table> tableCache;
 
     private ConnectionFactory factory;
-
-    private static final long NANOS_TO_MS = 1000000;
 
     @Override
     public void start(final CoprocessorEnvironment env) throws IOException {
@@ -234,8 +233,19 @@ public class TableEventSignaler extends BaseRegionObserver {
     private Map<RowKey, Boolean> getNewRows(final RegionCoprocessorEnvironment env, final TableName tableName, final List<Cell> cells) throws IOException {
         final Map<RowKey, Boolean> newRows = new HashMap<>();
 
-        Table table = tableCache.containsKey(tableName) ? tableCache.get(tableName) : refreshCache(tableName, env);
+        try {
+            Table table = tableCache.containsKey(tableName) ? tableCache.get(tableName) : refreshCache(tableName, env);
+            checkAndSetNewRows(tableName, cells, newRows, table);
+        } catch (NotServingRegionException nsre) {
+            LOGGER.error("Cached table seemed to be stale, requesting new run");
+            tableCache.remove(tableName);
+            Table table = refreshCache(tableName, env);
+            checkAndSetNewRows(tableName, cells, newRows, table);
+        }
+        return newRows;
+    }
 
+    private void checkAndSetNewRows(final TableName tableName, final List<Cell> cells, final Map<RowKey, Boolean> newRows, Table table) throws IOException {
         for (final Cell cell : cells) {
             final RowKey rowKey = new RowKey(cell);
             if (newRows.containsKey(rowKey)) {
@@ -246,20 +256,20 @@ public class TableEventSignaler extends BaseRegionObserver {
                 newRows.put(rowKey, !table.exists(get));
             } catch (Exception e) {
                 LOGGER.error(String.format("When trying use a cached table for %s, the code threw", tableName), e);
+                throw e;
             }
         }
-        return newRows;
     }
 
-    private Table refreshCache(TableName tableName, final RegionCoprocessorEnvironment env) throws IOException {
+    private synchronized Table refreshCache(TableName tableName, final RegionCoprocessorEnvironment env) throws IOException {
+        if(tableCache.containsKey(tableName)){ return tableCache.get(tableName); }
+
         long a = System.nanoTime();
         LOGGER.info("Trying to obtain connection for " + tableName);
-        synchronized (this) {
-            Table newCacheVal = env.getTable(tableName);
-            LOGGER.debug(String.format("Obtained table ref in %d ms", (System.nanoTime() - a) / NANOS_TO_MS));
-            tableCache.put(tableName, newCacheVal);
-            return newCacheVal;
-        }
+        Table newCacheVal = env.getTable(tableName);
+        LOGGER.debug(String.format("Obtained table ref in %d ms", NANOSECONDS.toMillis(System.nanoTime() - a)));
+        tableCache.put(tableName, newCacheVal);
+        return newCacheVal;
     }
 
     @Override
@@ -280,7 +290,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         if (cellList == null) {
             return;
         }
-        LOGGER.trace(String.format("Found %s cells in put", cellList.size()));
+        LOGGER.trace(String.format("Found %s cells in put in %d ms from start", cellList.size(), NANOSECONDS.toMillis(System.nanoTime()-startTime)));
         if (f_debug) {
             for (Cell cell : cellList) {
                 final byte[] rowKey = CellUtil.cloneRow(cell);
@@ -289,7 +299,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
 
         final Map<RowKey, Boolean> newRows = getNewRows(observerContext.getEnvironment(), tableName, cellList);
-
+        LOGGER.debug(String.format("getNewRows at %d ms from start", NANOSECONDS.toMillis(System.nanoTime()-startTime)));
         for (final Cell cell : cellList) {
 
             if (!filterQualifiers.isEmpty() && !filterQualifiers.contains(Bytes.toString(CellUtil.cloneQualifier(cell)))) {
@@ -301,13 +311,16 @@ public class TableEventSignaler extends BaseRegionObserver {
             final String action = isNewRow ? HookAction.PUT : HookAction.UPDATE;
             final AMQP.BasicProperties headers = constructBasicProperties(action);
             final String message = constructJsonObject(cell, rowKey.getRowKey());
+            LOGGER.debug(String.format("constructed json at %d ms from start", NANOSECONDS.toMillis(System.nanoTime()-startTime)));
 
             final String queueName = tableName.getNameAsString();
             publishMessage(queueName, headers, message);
+            LOGGER.debug(String.format("published msg at %d ms from start", NANOSECONDS.toMillis(System.nanoTime()-startTime)));
         }
         long endTime = System.nanoTime();
-        long elapsedTime = (endTime - startTime) / NANOS_TO_MS;
-        LOGGER.debug(String.format("Exiting TES#prePut, took %d ms from start", elapsedTime));
+        long elapsedTime = NANOSECONDS.toMillis(endTime - startTime);
+
+        LOGGER.debug(String.format("Exiting TES#prePut, took %d ms (%d ns)from start", elapsedTime, endTime-startTime));
     }
 
     @Override
@@ -348,16 +361,18 @@ public class TableEventSignaler extends BaseRegionObserver {
 
 
         long endTime = System.nanoTime();
-        long elapsedTime = (endTime - startTime) / NANOS_TO_MS;
-        LOGGER.debug(String.format("Exiting TES#preDelete, took %d ms from start", elapsedTime));
+        long elapsedTime = NANOSECONDS.toMillis(endTime - startTime);
+        LOGGER.debug(String.format("Exiting TES#preDelete, took %d ms (%d ns)from start", elapsedTime, endTime-startTime));
     }
 
     private void publishMessage(String queueName, AMQP.BasicProperties headers, String message) throws IOException {
+        long pmStart = System.nanoTime();
         LOGGER.trace("Getting channel");
         final Channel channel = getChannel();
         try {
             LOGGER.trace(String.format("Ensuring that queue: %s exists", queueName));
             ensureQueue(channel, queueName);
+            LOGGER.debug(String.format("Ensured channel in %d ms", TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-pmStart)));
 
             LOGGER.trace(String.format("Sending message to queue: %s", queueName));
             channel.basicPublish(
@@ -367,11 +382,16 @@ public class TableEventSignaler extends BaseRegionObserver {
                     message.getBytes());
 
             // Channel seems to work. Use it again.
+            LOGGER.debug(String.format("Sent message in %d ms", TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-pmStart)));
             LOGGER.trace("Message sent, releasing channel");
             releaseChannel(channel);
+            LOGGER.debug(String.format("Released channel in %d ms", TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-pmStart)));
         } catch (Throwable t) {
             // There was an error on the channel, throw it away.
-            try { channel.close(); } catch (Exception e) {}
+            try {
+                channel.close();
+            } catch (Exception e) {
+            }
             LOGGER.error(String.format("Error sending message to channel: %s", queueName), t);
             throw t;
         }
