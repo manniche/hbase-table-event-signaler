@@ -264,7 +264,7 @@ public class TableEventSignaler extends BaseRegionObserver {
         if(tableCache.containsKey(tableName)){ return tableCache.get(tableName); }
 
         long a = System.nanoTime();
-        LOGGER.info("Trying to obtain connection for " + tableName);
+        LOGGER.debug("Trying to obtain connection for " + tableName);
         Table newCacheVal = env.getTable(tableName);
         LOGGER.debug(String.format("Obtained table ref in %d ms", NANOSECONDS.toMillis(System.nanoTime() - a)));
         tableCache.put(tableName, newCacheVal);
