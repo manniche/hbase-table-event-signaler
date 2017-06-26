@@ -45,9 +45,11 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
-//remember to add the hbase dependencies to the pom file
+//remember to add the hbase dependencies to the pom file and to the
+// hbase lib folder on servers where the co-processor will be running
 public class TableEventSignaler extends BaseRegionObserver {
     private static final Log LOGGER = LogFactory.getLog(TableEventSignaler.class);
 
