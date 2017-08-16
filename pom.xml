@@ -18,13 +18,13 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <hbase.version>1.1.2</hbase.version>
-    <shade_append>v0_8_6</shade_append>
+    <shade_append>v0_8_7</shade_append>
     <dependency.locations.enabled>false</dependency.locations.enabled>
   </properties>
 
   <groupId>net.nzcorp.hbase</groupId>
   <artifactId>nzcorp-tableevent-signaler</artifactId>
-  <version>0.8.6</version>
+  <version>0.8.7</version>
   <packaging>jar</packaging>
 
   <build>

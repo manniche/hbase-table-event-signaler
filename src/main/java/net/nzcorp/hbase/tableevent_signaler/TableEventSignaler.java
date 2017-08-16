@@ -302,6 +302,11 @@ public class TableEventSignaler extends BaseRegionObserver {
         final Map<RowKey, Boolean> newRows = getNewRows(observerContext.getEnvironment(), tableName, cellList);
         LOGGER.debug(String.format("getNewRows at %d ms from start", NANOSECONDS.toMillis(System.nanoTime()-startTime)));
         for (final Cell cell : cellList) {
+            byte[] cellValue = CellUtil.cloneValue(cell);
+            if(!sendValue && cellValue.length < 1)
+            {
+                continue;
+            }
 
             if (!filterQualifiers.isEmpty() && !filterQualifiers.contains(Bytes.toString(CellUtil.cloneQualifier(cell)))) {
                 continue;
