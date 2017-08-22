@@ -30,7 +30,8 @@ import org.apache.qpid.server.BrokerOptions;
 import org.json.JSONObject;
 import org.junit.*;
 import org.junit.runner.RunWith;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.MockitoAnnotations;
+import org.tap4j.ext.junit.runner.TapRunnerClass;
 
 import java.io.File;
 import java.io.IOException;
@@ -42,7 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * We start up a hbase minicluster (in {@link TableEventSignalerTest#setupHBase(Map)} and a minimal AMQP
  * implementation in {@link TableEventSignalerTest#brokerStarter}, both running in memory.
  */
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(TapRunnerClass.class)
 public class TableEventSignalerTest {
     private static final String amq_port_number = "25672";
     private static final String amq_uri = String.format("amqp://guest:guest@0.0.0.0:%s", amq_port_number);
