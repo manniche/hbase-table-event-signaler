@@ -13,3 +13,4 @@ Configuration options available:
  - target_column_family
  - amq_address
  - send_value
+ - use_ssl
