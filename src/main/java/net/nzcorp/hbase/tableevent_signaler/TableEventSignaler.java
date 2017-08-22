@@ -95,6 +95,11 @@ public class TableEventSignaler extends BaseRegionObserver {
     private boolean sendValue;
 
     /**
+     * Toggle whether TES should use ssl when sending messages to the AMQP server
+     */
+    private boolean useSSL;
+
+    /**
      * Applies a filtering to which column qualifiers to emit events for
      */
     private Set<String> filterQualifiers;
@@ -147,6 +152,8 @@ public class TableEventSignaler extends BaseRegionObserver {
         //light-weight messages? anything other than -i "tRuE" is false:
         sendValue = Boolean.parseBoolean(env.getConfiguration().get("send_value"));
 
+        useSSL = Boolean.parseBoolean(env.getConfiguration().get("use_ssl"));
+
         String fqs = env.getConfiguration().get("filter_qualifiers");
         if (fqs == null || fqs.length() == 0) {
             LOGGER.info("No filter qualifiers set, signaling on every event");
@@ -172,6 +179,9 @@ public class TableEventSignaler extends BaseRegionObserver {
         factory = new ConnectionFactory();
         try {
             factory.setUri(amqpAddress);
+            if(useSSL) {
+                factory.useSslProtocol();
+            }
         } catch (URISyntaxException | NoSuchAlgorithmException | KeyManagementException e) {
             throw new IOException(e);
         }
