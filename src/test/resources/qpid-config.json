@@ -1,23 +1,41 @@
 {
-  "name" : "EmbeddedBroker",
-  "defaultVirtualHost" : "hbase_events",
-  "modelVersion" : "1.0",
-  "storeVersion" : 1,
+  "name" : "broker",
+  "modelVersion" : "6.0",
   "authenticationproviders" : [ {
-    "name" : "passwordFile",
-    "path" : "${qpid.pass_file}",
-    "type" : "PlainPasswordFile",
-    "secureOnlyMechanisms": []
+    "name" : "plain",
+    "type" : "Plain",
+    "users" : [ {
+      "name" : "guest",
+      "type" : "managed",
+      "password" : "guest"
+    } ]
   } ],
   "ports" : [ {
     "name" : "AMQP",
     "port" : "${qpid.amqp_port}",
-    "authenticationProvider" : "passwordFile"
+    "authenticationProvider" : "plain",
+    "keyStore" : "default",
+    "transports" : [ "SSL" ],
+    "virtualhostaliases" : [ {
+      "name" : "defaultAlias",
+      "type" : "defaultAlias"
+    }, {
+      "name" : "hostnameAlias",
+      "type" : "hostnameAlias"
+    }, {
+      "name" : "nameAlias",
+      "type" : "nameAlias"
+    } ]
   } ],
   "virtualhostnodes" : [ {
-    "name" : "hbase_events",
+    "name" : "default",
     "type" : "JSON",
     "defaultVirtualHostNode" : "true",
-    "virtualHostInitialConfiguration" : "{\"type\" : \"DERBY\"}"
-  } ]
+    "virtualHostInitialConfiguration" : "{\"type\" : \"Memory\",\"name\" : \"default\",\"modelVersion\" : \"6.0\"}"
+  } ],
+  "keystores" : [ {
+    "name" : "default",
+    "password" : "123456",
+    "storeUrl": "${qpid.keystorepath}"
+  }]
 }

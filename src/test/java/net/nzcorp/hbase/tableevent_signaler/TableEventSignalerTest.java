@@ -16,7 +16,8 @@ package net.nzcorp.hbase.tableevent_signaler;
  */
 
 import com.google.common.io.Files;
-import com.rabbitmq.client.GetResponse;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.*;
 import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
@@ -28,86 +29,84 @@ import org.apache.qpid.server.Broker;
 import org.apache.qpid.server.BrokerOptions;
 import org.json.JSONObject;
 import org.junit.*;
-import org.junit.rules.ExternalResource;
 import org.junit.runner.RunWith;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The tests in this test suite uses the junit unittest framework, but is really an integration test in disguise.
  * We start up a hbase minicluster (in {@link TableEventSignalerTest#setupHBase(Map)} and a minimal AMQP
- * implementation in {@link TableEventSignalerTest#embeddedAMQPBroker}, both running in memory and torn down
- * after each test
- *
- * @throws Exception
+ * implementation in {@link TableEventSignalerTest#brokerStarter}, both running in memory.
  */
 @RunWith(MockitoJUnitRunner.class)
 public class TableEventSignalerTest {
-    private Broker broker;
-    private static final String amq_default_address = "amqp://guest:guest@0.0.0.0:25672/hbase_events";
+    private static final String amq_port_number = "25672";
+    private static final String amq_uri = String.format("amqp://guest:guest@0.0.0.0:%s", amq_port_number);
+    private static final String amq_default_address = String.format("%s/%s", amq_uri, "default");
     private static final String primaryTableNameString = "genome";
     private static final String secondaryIdxTableNameString = "genome_index";
     private static final String downstreamTableNameString = "assembly";
     private static final TableName primaryTableName = TableName.valueOf(primaryTableNameString);
     private static final TableName secondaryIdxTableName = TableName.valueOf(secondaryIdxTableNameString);
     private static final TableName downstreamTableName = TableName.valueOf(downstreamTableNameString);
-    private Table primaryTable;
-    private Table secondaryIdxTable;
-    private Table downstreamTable;
+    private static Table primaryTable;
+    private static Table secondaryIdxTable;
+    private static Table downstreamTable;
 
-    private HBaseTestingUtility testingUtility = new HBaseTestingUtility();
+    private static final SimpleCache cache = new SimpleCache();
+
+    private static BrokerManager brokerStarter;
+    private static HBaseTestingUtility testingUtility = new HBaseTestingUtility();
 
     /**
      * Disable all loggers except for the coprocessor class. If you would like to silence the log output alltogether,
      * remove the line with the coprocessor name in it
      */
     @BeforeClass
-    public static void beforeClass() {
+    public static void beforeClass() throws Exception {
         List<Logger> loggers = Collections.<Logger>list(LogManager.getCurrentLoggers());
         loggers.add(LogManager.getRootLogger());
         for (Logger logger : loggers) {
             logger.setLevel(Level.ERROR);
         }
         LogManager.getLogger(TableEventSignaler.class).setLevel(Level.TRACE);
+        brokerStarter = new BrokerManager();
+        brokerStarter.startBroker();
+        Map<String, String> kvs = configureHBase("some_key");
+        setupHBase(kvs);
+    }
+
+    @AfterClass
+    public static void afterClass() throws Exception {
+        primaryTable = null;
+        testingUtility.shutdownMiniCluster();
+        testingUtility = null;
+        brokerStarter.shutdown();
+    }
+
+    @After
+    public void after() throws Exception {
+        cache.clear();
     }
 
     /**
-     * emulate the hbase-site.xml, while allowing for the individual test to start up a cluster with a special
-     * configuration for the coprocessor
-     *
-     * @param destination_table
-     * @param sec_idx_table
-     * @param src_cf
-     * @param trgt_cf
-     * @param sec_idx_cf
-     * @param amq_addr
-     * @param send_value
-     * @return
+     * emulate the hbase-site.xml for setting up the coprocessor
      */
-    private Map<String, String> configureHBase(String destination_table,
-                                               String sec_idx_table,
-                                               String src_cf,
-                                               String trgt_cf,
-                                               String sec_idx_cf,
-                                               String amq_addr,
-                                               String queueName,
-                                               String send_value,
-					       String filterQs) {
+    private static Map<String, String> configureHBase(String filterQs) {
         Map<String, String> kvs = new HashMap<>();
-        kvs.put("destination_table", destination_table);
-        kvs.put("source_column_family", src_cf);
-        kvs.put("secondary_index_table", sec_idx_table);
-        kvs.put("target_column_family", trgt_cf);
-        kvs.put("secondary_index_cf", sec_idx_cf);
-        kvs.put("amq_address", amq_addr);
-        kvs.put("queue_name", queueName);
-        kvs.put("send_value", send_value);
+        kvs.put("destination_table", primaryTableNameString);
+        kvs.put("secondary_index_table", secondaryIdxTableNameString);
+        kvs.put("source_column_family", "e");
+        kvs.put("target_column_family", "eg");
+        kvs.put("secondary_index_cf", "a");
+        kvs.put("amq_address", amq_default_address);
+        kvs.put("queue_name", primaryTableNameString);
+        kvs.put("send_value", "true");
+        kvs.put("use_ssl", "true");
 	if( filterQs.length() > 0 ){
 	    kvs.put("filter_qualifiers", filterQs);
         }
@@ -120,7 +119,7 @@ public class TableEventSignalerTest {
      * @param kvs
      * @throws Exception
      */
-    private void setupHBase(Map<String, String> kvs) throws Exception {
+    private static void setupHBase(Map<String, String> kvs) throws Exception {
 
         // Get random port number
         testingUtility.getConfiguration().setInt("hbase.regionserver.port", HBaseTestingUtility.randomFreePort());
@@ -154,38 +153,26 @@ public class TableEventSignalerTest {
         downstreamTable = testingUtility.getConnection().getTable(downstreamTableName);
     }
 
-    @After
-    public void after() throws Exception {
-        primaryTable = null;
-        testingUtility.shutdownMiniCluster();
-        testingUtility = null;
-    }
 
-    @Rule
-    public final ExternalResource embeddedAMQPBroker = new ExternalResource() {
+    static class BrokerManager {
+        private final Broker b = new Broker();
+        private final String configFileName = "qpid-config.json";
+        private final String passwordFileName = "passwd.properties";
 
-        @Override
-        protected void before() throws Throwable {
-            final String configFileName = "qpid-config.json";
-            final String passwordFileName = "passwd.properties";
 
-            getResourcePath(configFileName);
-            getResourcePath(passwordFileName);
-            BrokerOptions brokerOptions = new BrokerOptions();
-            brokerOptions.setConfigProperty("qpid.amqp_port", "25672");
-            brokerOptions.setConfigProperty("qpid.pass_file", getResourcePath(passwordFileName));
-            brokerOptions.setConfigProperty("qpid.work_dir", Files.createTempDir().getAbsolutePath());
-            brokerOptions.setInitialConfigurationLocation(getResourcePath(configFileName));
-            brokerOptions.setStartupLoggedToSystemOut(true);
+        public void startBroker() throws Exception {
+                final BrokerOptions brokerOptions = new BrokerOptions();
+                brokerOptions.setConfigProperty("qpid.pass_file", getResourcePath(passwordFileName));
+                brokerOptions.setConfigProperty("qpid.work_dir", Files.createTempDir().getAbsolutePath());
+                brokerOptions.setConfigProperty("qpid.amqp_port", amq_port_number);
+                brokerOptions.setConfigProperty("qpid.keystorepath", getResourcePath("clientkeystore"));
+                brokerOptions.setInitialConfigurationLocation(getResourcePath(configFileName));
 
-            // start broker
-            broker = new Broker();
-            broker.startup(brokerOptions);
+                b.startup(brokerOptions);
         }
 
-        @Override
-        protected void after() {
-            broker.shutdown();
+        public void shutdown(){
+            b.shutdown();
         }
 
         private String getResourcePath(String filename) {
@@ -193,15 +180,74 @@ public class TableEventSignalerTest {
             File file = new File(classLoader.getResource(filename).getFile());
             return file.getAbsolutePath();
         }
-    };
+    }
 
+    public static class CacheEntry {
+        private String text;
+        private int sequenceNr;
+
+        public CacheEntry(String text, int sequenceNr) {
+            this.text = text;
+            this.sequenceNr = sequenceNr;
+        }
+
+        public String getText() {
+            return text;
+        }
+    }
+
+    public static class SimpleCache {
+
+        private List<CacheEntry> cache = new ArrayList<>();// CopyOnWriteArrayList<>();
+        private AtomicInteger counter = new AtomicInteger(0);
+
+        public void update(String text) {
+            cache.add(new CacheEntry(text, counter.getAndIncrement()));
+        }
+
+        public List<CacheEntry> getContent() {
+            return Collections.unmodifiableList(cache);
+        }
+
+        public void clear(){
+            cache.clear();
+        }
+    }
+
+    public class Receiver {
+
+        public Receiver() {}
+        public void receive() throws Exception {
+            ConnectionFactory factory = createConnectionFactory();
+
+            Connection connection = factory.newConnection();
+            Channel channel = connection.createChannel();
+
+            channel.queueDeclare(primaryTableNameString, true, false, false, null);
+            channel.basicConsume(primaryTableNameString, true, newConsumer(channel));
+        }
+
+        protected ConnectionFactory createConnectionFactory() throws Exception {
+            ConnectionFactory factory = new ConnectionFactory();
+            factory.setUri(amq_uri);
+            factory.useSslProtocol();
+            return factory;
+        }
+
+        private DefaultConsumer newConsumer(Channel channel) {
+            return new DefaultConsumer(channel) {
+                @Override
+                public void handleDelivery(String consumerTag, Envelope envelope, AMQP.BasicProperties properties,
+                                           byte[] body) throws IOException {
+                    cache.update(new String(body));
+                }
+            };
+        }
+    }
 
     @Test
     public void prePutHappyCase() throws Exception {
-
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true", "");
-        setupHBase(kvs);
-
+        System.out.println("prePutHappyCase");
         //simulate population of secondary index as a result of the above
         Put idxPut = new Put("EFG1".getBytes());
         idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
@@ -212,49 +258,33 @@ public class TableEventSignalerTest {
         tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
         primaryTable.put(tablePut);
 
-        //check that values made it to the queue
-        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-        factory.setUri(amq_default_address);
-        com.rabbitmq.client.Connection conn = factory.newConnection();
-        com.rabbitmq.client.Channel channel = conn.createChannel();
-        System.out.println(String.format("Test: connecting to %s", primaryTableNameString));
+        Receiver rec = new Receiver();
+        rec.receive();
 
-        while (true) {
-            GetResponse response = channel.basicGet(primaryTableNameString, false);
-            if (response == null)//busy-wait until the message has made it through the MQ
-            {
+        int counter = 0;
+        while(true) {
+            Thread.sleep(500);
+            List<CacheEntry> content = cache.getContent();
+            if(content.size() == 0) {
+                counter++;
+                if(counter >10){
+                    Assert.fail("Timeout while waiting for message broker");
+                    break;
+                }
                 continue;
             }
-            String routingKey = response.getEnvelope().getRoutingKey();
-            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
 
-            String contentType = response.getProps().getContentType();
-            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-
-            Map<String, Object> headers = response.getProps().getHeaders();
-            Assert.assertEquals("An action should be set on the message", "put", headers.get("action").toString());
-
-            byte[] body = response.getBody();
-
-            JSONObject jo = new JSONObject(new String(body));
-            String column_family = (String) jo.get("column_family");
-            Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
-
-            String column_value = (String) jo.get("column_value");
-            Assert.assertEquals("Column value should be preserved in the message body", "some_value", column_value);
-
-            long deliveryTag = response.getEnvelope().getDeliveryTag();
-            channel.basicAck(deliveryTag, false);
+            Assert.assertEquals(1, content.size());
+            JSONObject jsonObject = new JSONObject(content.get(0).getText());
+            String rowkey = (String) jsonObject.get("row_key");
+            Assert.assertEquals("EFG1", rowkey);
             break;
         }
     }
 
     @Test
     public void verifyValueNotSentByDefault() throws Exception {
-
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "false", "");
-        setupHBase(kvs);
-
+        System.out.println("verifyValueNotSentByDefault");
         //simulate population of secondary index as a result of the above
         Put idxPut = new Put("EFG1".getBytes());
         idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
@@ -265,102 +295,72 @@ public class TableEventSignalerTest {
         tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
         primaryTable.put(tablePut);
 
-        //check that values made it to the queue
-        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-        factory.setUri(amq_default_address);
-        com.rabbitmq.client.Connection conn = factory.newConnection();
-        com.rabbitmq.client.Channel channel = conn.createChannel();
-        System.out.println(String.format("Test: connecting to %s", primaryTableNameString));
-
-        while (true) {
-            GetResponse response = channel.basicGet(primaryTableNameString, false);
-            if (response == null)//busy-wait until the message has made it through the MQ
-            {
+        new Receiver().receive();
+        int counter = 0;
+        while(true) {
+            Thread.sleep(500);
+            List<CacheEntry> content = cache.getContent();
+            if(content.size() == 0) {
+                counter++;
+                if(counter >10){
+                    Assert.fail("Timeout while waiting for message broker");
+                    break;
+                }
                 continue;
             }
-            String routingKey = response.getEnvelope().getRoutingKey();
-            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
 
-            String contentType = response.getProps().getContentType();
-            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-
-            Map<String, Object> headers = response.getProps().getHeaders();
-            Assert.assertEquals("An action should be set on the message", "put", headers.get("action").toString());
-
-            byte[] body = response.getBody();
-
-            JSONObject jo = new JSONObject(new String(body));
-            String column_family = (String) jo.get("column_family");
-            Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
-
-            String column_value = (String) jo.get("column_value");
-            Assert.assertEquals("Column value is not sent by default", "", column_value);
-
-            long deliveryTag = response.getEnvelope().getDeliveryTag();
-            channel.basicAck(deliveryTag, false);
+            Assert.assertEquals(1, content.size());
+            JSONObject jsonObject = new JSONObject(content.get(0).getText());
+            String rowkey = (String) jsonObject.get("row_key");
+            Assert.assertEquals("EFG1", rowkey);
             break;
         }
     }
 
     @Test
     public void filterOnQualifiers() throws Exception {
-
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "false", "one_key|some_key");
-        setupHBase(kvs);
-
+        System.out.println("filterOnQualifiers");
         //simulate population of secondary index as a result of the above
         Put idxPut = new Put("EFG1".getBytes());
         idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
         secondaryIdxTable.put(idxPut);
 
-        // Add a column to the primary table, which should trigger a data ripple to the downstream table
+        // Add a column to the primary table, which should trigger a message in the queue
         Put tablePut = new Put("EFG1".getBytes());
         tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
         primaryTable.put(tablePut);
 
-        //check that values made it to the queue
-        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-        factory.setUri(amq_default_address);
-        com.rabbitmq.client.Connection conn = factory.newConnection();
-        com.rabbitmq.client.Channel channel = conn.createChannel();
-        System.out.println(String.format("Test: connecting to %s", primaryTableNameString));
+        // Add a column to the primary table which should _not_ trigger a message
+        Put anotherPut = new Put("EFG1".getBytes());
+        anotherPut.addColumn("e".getBytes(), "foo_bar".getBytes(), "baz".getBytes());
+        primaryTable.put(anotherPut);
 
-        while (true) {
-            GetResponse response = channel.basicGet(primaryTableNameString, false);
-            if (response == null)//busy-wait until the message has made it through the MQ
-            {
+        // Verify that the queue only contains a single message
+        new Receiver().receive();
+        int counter = 0;
+        while(true) {
+            Thread.sleep(500);
+            List<CacheEntry> content = cache.getContent();
+            if(content.size() == 0) {
+                counter++;
+                if(counter >10){
+                    Assert.fail("Timeout while waiting for message broker");
+                    break;
+                }
                 continue;
             }
-            String routingKey = response.getEnvelope().getRoutingKey();
-            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
 
-            String contentType = response.getProps().getContentType();
-            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-
-            Map<String, Object> headers = response.getProps().getHeaders();
-            Assert.assertEquals("An action should be set on the message", "put", headers.get("action").toString());
-
-            byte[] body = response.getBody();
-
-            JSONObject jo = new JSONObject(new String(body));
-            String column_family = (String) jo.get("column_family");
-            Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
-
-            String column_value = (String) jo.get("column_value");
-            Assert.assertEquals("Column value is not sent by default", "", column_value);
-
-            long deliveryTag = response.getEnvelope().getDeliveryTag();
-            channel.basicAck(deliveryTag, false);
+            Assert.assertEquals(1, content.size());
+            JSONObject jsonObject = new JSONObject(content.get(0).getText());
+            String rowkey = (String) jsonObject.get("row_key");
+            Assert.assertEquals("EFG1", rowkey);
             break;
         }
     }
 
     @Test
     public void onlyPutWhenInQualifierFilter() throws Exception {
-
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "false", "some_key");
-        setupHBase(kvs);
-
+        System.out.println("onlyPutWhenInQualifierFilter");
         //simulate population of secondary index as a result of the above
         Put idxPut = new Put("EFG1".getBytes());
         idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
@@ -373,107 +373,32 @@ public class TableEventSignalerTest {
         tablePut.addColumn("e".getBytes(), "third_key".getBytes(), "some_value".getBytes());
         primaryTable.put(tablePut);
 
-        //check that values made it to the queue
-        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-        factory.setUri(amq_default_address);
-        com.rabbitmq.client.Connection conn = factory.newConnection();
-        com.rabbitmq.client.Channel channel = conn.createChannel();
-        System.out.println(String.format("Test: connecting to %s", primaryTableNameString));
-
-        while (true) {
-	    int numMessages = channel.queueDeclarePassive(primaryTableNameString).getMessageCount();
-            GetResponse response = channel.basicGet(primaryTableNameString, false);
-            if (response == null || numMessages == 0)//busy-wait until the message has made it through the MQ
-            {
+        new Receiver().receive();
+        int counter = 0;
+        while(true) {
+            Thread.sleep(500);
+            List<CacheEntry> content = cache.getContent();
+            if(content.size() == 0) {
+                counter++;
+                if(counter >10){
+                    Assert.fail("Timeout while waiting for message broker");
+                    break;
+                }
                 continue;
             }
-	    Assert.assertEquals("There should be only a single key in the queue", 1, numMessages);
-            String routingKey = response.getEnvelope().getRoutingKey();
-            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
 
-            String contentType = response.getProps().getContentType();
-            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-
-            Map<String, Object> headers = response.getProps().getHeaders();
-            Assert.assertEquals("An action should be set on the message", "put", headers.get("action").toString());
-
-            byte[] body = response.getBody();
-
-            JSONObject jo = new JSONObject(new String(body));
-            String column_family = (String) jo.get("column_family");
-            Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
-
-            String column_value = (String) jo.get("column_value");
-            Assert.assertEquals("Column value is not sent by default", "", column_value);
-
-            long deliveryTag = response.getEnvelope().getDeliveryTag();
-            channel.basicAck(deliveryTag, false);
+            Assert.assertEquals(1, content.size());
+            JSONObject jsonObject = new JSONObject(content.get(0).getText());
+            String rowkey = (String) jsonObject.get("row_key");
+            Assert.assertEquals("EFG1", rowkey);
             break;
         }
     }
 
 
-    
-    @Test(expected = IOException.class)
-    public void filterOnQualifiersThatDoesNotExistSilencesEvents() throws Exception {
-
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "false", "one|some");
-        setupHBase(kvs);
-
-        //simulate population of secondary index as a result of the above
-        Put idxPut = new Put("EFG1".getBytes());
-        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
-        secondaryIdxTable.put(idxPut);
-
-        // Add a column to the primary table, which should trigger a data ripple to the downstream table
-        Put tablePut = new Put("EFG1".getBytes());
-        tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
-        primaryTable.put(tablePut);
-
-        //check that values made it to the queue
-        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-        factory.setUri(amq_default_address);
-        com.rabbitmq.client.Connection conn = factory.newConnection();
-        com.rabbitmq.client.Channel channel = conn.createChannel();
-
-	
-	System.out.println(String.format("is ok? %s", channel.queueDeclarePassive(primaryTableNameString)));
-    }
-
-    
-    @Test
-    public void prePostErrorOnUnavailableAMQP() throws Exception {
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true", "");
-        setupHBase(kvs);
-        broker.shutdown(13); //unlucky broker
-
-        //simulate population of secondary index as a result of the above
-        Put idxPut = new Put("EFG1".getBytes());
-        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
-        secondaryIdxTable.put(idxPut);
-
-        // Add a column to the primary table, which should trigger a data ripple to the downstream table
-        Put tablePut = new Put("EFG1".getBytes());
-        tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
-        try {
-            primaryTable.put(tablePut);
-        } catch (RetriesExhaustedWithDetailsException e) {
-            Assert.assertEquals("Exception type should be java.net.ConnectException", java.net.ConnectException.class, e.getCause(0).getClass());
-            Assert.assertEquals("Exception text should be present", "Failed 1 action: ConnectException: 1 time, ", e.getMessage());
-        }
-    }
-
     @Test
     public void preDeleteHappyCase() throws Exception {
-
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true", "");
-        setupHBase(kvs);
-        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-        factory.setUri(amq_default_address);
-        com.rabbitmq.client.Connection conn = factory.newConnection();
-        com.rabbitmq.client.Channel channel = conn.createChannel();
-
-
+        System.out.println("preDeleteHappyCase");
         //simulate population of secondary index for a put on the downstreamTable
         Put idxPut = new Put("EFG1".getBytes());
         idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
@@ -484,46 +409,36 @@ public class TableEventSignalerTest {
         tablePut.addColumn("eg".getBytes(), "some_key".getBytes(), "some_value".getBytes());
         downstreamTable.put(tablePut);
 
-        // since we made no active put to the queue from the prePut, we need to declare it explicitly here
-        channel.queueDeclare(primaryTableNameString, true, false, false, null);
-
         // finished with the setup, we now issue a delete which should be caught by the rabbitmq
         Delete d = new Delete("EFG1".getBytes());
         primaryTable.delete(d);
 
-        //check that values made it to the queue
-        while (true) {
-            GetResponse response = channel.basicGet(primaryTableNameString, false);
-            if (response == null)//busy-wait until the message has made it through the MQ
-            {
+
+        new Receiver().receive();
+        int counter = 0;
+        while(true) {
+            Thread.sleep(500);
+            List<CacheEntry> content = cache.getContent();
+            if(content.size() == 0) {
+                counter++;
+                if(counter >10){
+                    Assert.fail("Timeout while waiting for message broker");
+                    break;
+                }
                 continue;
             }
-            String routingKey = response.getEnvelope().getRoutingKey();
-            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
 
-            String contentType = response.getProps().getContentType();
-            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-
-            Map<String, Object> headers = response.getProps().getHeaders();
-            Assert.assertEquals("An action should be set on the message", "delete", headers.get("action").toString());
-
-            byte[] body = response.getBody();
-            JSONObject jo = new JSONObject(new String(body));
-
-            String column_qualifier = (String) jo.get("column_qualifier");
-            Assert.assertEquals("Column qualifier should be empty, signalling a row delete", "", column_qualifier);
-
-            long deliveryTag = response.getEnvelope().getDeliveryTag();
-            channel.basicAck(deliveryTag, false);
+            Assert.assertEquals(1, content.size());
+            JSONObject jsonObject = new JSONObject(content.get(0).getText());
+            String rowkey = (String) jsonObject.get("row_key");
+            Assert.assertEquals("EFG1", rowkey);
             break;
         }
     }
 
     @Test
     public void discernNewPutFromUpdate() throws Exception {
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true", "");
-        setupHBase(kvs);
-
+        System.out.println("discernNewPutFromUpdate");
         //simulate population of secondary index as a result of the above
         Put idxPut = new Put("EFG1".getBytes());
         idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
@@ -541,77 +456,25 @@ public class TableEventSignalerTest {
         tablePut = new Put("EFG1".getBytes());
         tablePut.addColumn("e".getBytes(), "some_other_key".getBytes(), "some_value".getBytes());
         primaryTable.put(tablePut);
-
-        //check that values made it to the queue
-        com.rabbitmq.client.ConnectionFactory factory = new com.rabbitmq.client.ConnectionFactory();
-        factory.setUri(amq_default_address);
-        com.rabbitmq.client.Connection conn = factory.newConnection();
-        com.rabbitmq.client.Channel channel = conn.createChannel();
-        int msgs_to_consume = 2;
-        while (msgs_to_consume > 0) {
-            System.out.println(String.format("Messages to get: %s", msgs_to_consume));
-            GetResponse response = channel.basicGet(primaryTableNameString, false);
-            if (response == null)//busy-wait until the message has made it through the MQ
-            {
+        new Receiver().receive();
+        int counter = 0;
+        while(true) {
+            Thread.sleep(500);
+            List<CacheEntry> content = cache.getContent();
+            if(content.size() == 0) {
+                counter++;
+                if(counter >10){
+                    Assert.fail("Timeout while waiting for message broker");
+                    break;
+                }
                 continue;
             }
-            String routingKey = response.getEnvelope().getRoutingKey();
-            Assert.assertEquals("Routing key should be rowkey", "genome", routingKey);
 
-            String contentType = response.getProps().getContentType();
-            Assert.assertEquals("Content type should be preserved", "application/json", contentType);
-
-            Map<String, Object> headers = response.getProps().getHeaders();
-            byte[] body = response.getBody();
-
-            JSONObject jo = new JSONObject(new String(body));
-            String column_family = (String) jo.get("column_family");
-            Assert.assertEquals("Column family should be preserved in the message body", "eg", column_family);
-
-            String column_value = (String) jo.get("column_qualifier");
-
-            if(headers.get("action").toString().equals("update")){
-                Assert.assertEquals("Column value should be preserved in the message body", "some_other_key", column_value);
-            }
-            else {
-                Assert.assertEquals("Column value should be preserved in the message body", "some_key", column_value);
-            }
-
-            long deliveryTag = response.getEnvelope().getDeliveryTag();
-            channel.basicAck(deliveryTag, false);
-            msgs_to_consume--;
-        }
-    }
-
-
-    @Test
-    public void preDeleteErrorOnUnavailableAMQP() throws Exception {
-        Map<String, String> kvs = configureHBase(primaryTableNameString, secondaryIdxTableNameString, "e", "eg", "a", amq_default_address, primaryTableNameString, "true", "");
-        setupHBase(kvs);
-
-        //simulate population of secondary index as a result of the above
-        Put idxPut = new Put("EFG1".getBytes());
-        idxPut.addColumn("a".getBytes(), "EFB1".getBytes(), "".getBytes());
-        secondaryIdxTable.put(idxPut);
-
-        // Add a column to the primary table, which should trigger a data ripple to the downstream table
-        Put tablePut = new Put("EFG1".getBytes());
-        tablePut.addColumn("e".getBytes(), "some_key".getBytes(), "some_value".getBytes());
-        primaryTable.put(tablePut);
-
-        Delete d = new Delete("EFG1".getBytes());
-        // finished with the setup, we now issue a delete which should be caught by the rabbitmq broker. Unfortunately,
-        // it dies:
-        broker.shutdown(13); //unlucky broker
-
-        try {
-            primaryTable.delete(d);
-        } catch (RetriesExhaustedWithDetailsException e) {
-            Assert.assertEquals("Exception type should be java.net.ConnectException", java.net.ConnectException.class, e.getCause(0).getClass());
-            Assert.assertEquals("Exception text should be present", "Failed 1 action: ConnectException: 1 time, ", e.getMessage());
-        } catch (RetriesExhaustedException e) {
-            Assert.assertEquals("Exception type is? ", RetriesExhaustedException.class, e.getClass());
-            Assert.assertEquals("Exception text should be present", "java.net.ConnectException", e.getCause().getMessage().substring(0, 25));
+            Assert.assertEquals(1, content.size());
+            JSONObject jsonObject = new JSONObject(content.get(0).getText());
+            String rowkey = (String) jsonObject.get("row_key");
+            Assert.assertEquals("EFG1", rowkey);
+            break;
         }
     }
 }
