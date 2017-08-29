@@ -152,5 +152,11 @@
           <version>6.1.0</version>
           <scope>test</scope>
       </dependency>
+      <dependency>
+          <groupId>org.tap4j</groupId>
+          <artifactId>tap4j-ext</artifactId>
+          <version>4.2.1</version>
+          <scope>test</scope>
+      </dependency>
   </dependencies>
 </project>
