@@ -176,6 +176,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             throw new IOException(err);
         }
 
+
         factory = new ConnectionFactory();
         try {
             factory.setUri(amqpAddress);

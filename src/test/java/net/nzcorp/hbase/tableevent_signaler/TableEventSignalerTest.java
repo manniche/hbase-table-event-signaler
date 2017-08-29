@@ -30,7 +30,6 @@ import org.apache.qpid.server.BrokerOptions;
 import org.json.JSONObject;
 import org.junit.*;
 import org.junit.runner.RunWith;
-import org.mockito.MockitoAnnotations;
 import org.tap4j.ext.junit.runner.TapRunnerClass;
 
 import java.io.File;
@@ -68,6 +67,7 @@ public class TableEventSignalerTest {
      * remove the line with the coprocessor name in it
      */
     @BeforeClass
+    @SuppressWarnings("unchecked")
     public static void beforeClass() throws Exception {
         List<Logger> loggers = Collections.<Logger>list(LogManager.getCurrentLoggers());
         loggers.add(LogManager.getRootLogger());
@@ -77,7 +77,7 @@ public class TableEventSignalerTest {
         LogManager.getLogger(TableEventSignaler.class).setLevel(Level.TRACE);
         brokerStarter = new BrokerManager();
         brokerStarter.startBroker();
-        Map<String, String> kvs = configureHBase("some_key");
+        Map<String, String> kvs = configureHBase();
         setupHBase(kvs);
     }
 
@@ -97,7 +97,7 @@ public class TableEventSignalerTest {
     /**
      * emulate the hbase-site.xml for setting up the coprocessor
      */
-    private static Map<String, String> configureHBase(String filterQs) {
+    private static Map<String, String> configureHBase() {
         Map<String, String> kvs = new HashMap<>();
         kvs.put("destination_table", primaryTableNameString);
         kvs.put("secondary_index_table", secondaryIdxTableNameString);
@@ -108,17 +108,15 @@ public class TableEventSignalerTest {
         kvs.put("queue_name", primaryTableNameString);
         kvs.put("send_value", "true");
         kvs.put("use_ssl", "true");
-	if( filterQs.length() > 0 ){
-	    kvs.put("filter_qualifiers", filterQs);
-        }
-	return kvs;
+	    kvs.put("filter_qualifiers", "some_key");
+    	return kvs;
     }
 
     /**
      * Set up the cluster, create tables + column families and install coprocessor
      *
-     * @param kvs
-     * @throws Exception
+     * @param kvs map containing the keys+values to be set in the coprocessor configuration
+     * @throws Exception junit lip-service
      */
     private static void setupHBase(Map<String, String> kvs) throws Exception {
 
@@ -161,7 +159,7 @@ public class TableEventSignalerTest {
         private final String passwordFileName = "passwd.properties";
 
 
-        public void startBroker() throws Exception {
+        void startBroker() throws Exception {
                 final BrokerOptions brokerOptions = new BrokerOptions();
                 brokerOptions.setConfigProperty("qpid.pass_file", getResourcePath(passwordFileName));
                 brokerOptions.setConfigProperty("qpid.work_dir", Files.createTempDir().getAbsolutePath());
@@ -172,7 +170,7 @@ public class TableEventSignalerTest {
                 b.startup(brokerOptions);
         }
 
-        public void shutdown(){
+        void shutdown(){
             b.shutdown();
         }
 
@@ -187,12 +185,12 @@ public class TableEventSignalerTest {
         private String text;
         private int sequenceNr;
 
-        public CacheEntry(String text, int sequenceNr) {
+        CacheEntry(String text, int sequenceNr) {
             this.text = text;
             this.sequenceNr = sequenceNr;
         }
 
-        public String getText() {
+        String getText() {
             return text;
         }
     }
@@ -202,15 +200,15 @@ public class TableEventSignalerTest {
         private List<CacheEntry> cache = new ArrayList<>();// CopyOnWriteArrayList<>();
         private AtomicInteger counter = new AtomicInteger(0);
 
-        public void update(String text) {
+        void update(String text) {
             cache.add(new CacheEntry(text, counter.getAndIncrement()));
         }
 
-        public List<CacheEntry> getContent() {
+        List<CacheEntry> getContent() {
             return Collections.unmodifiableList(cache);
         }
 
-        public void clear(){
+        void clear(){
             cache.clear();
         }
     }
@@ -218,7 +216,7 @@ public class TableEventSignalerTest {
     public class Receiver {
 
         public Receiver() {}
-        public void receive() throws Exception {
+        void receive() throws Exception {
             ConnectionFactory factory = createConnectionFactory();
 
             Connection connection = factory.newConnection();
@@ -228,7 +226,7 @@ public class TableEventSignalerTest {
             channel.basicConsume(primaryTableNameString, true, newConsumer(channel));
         }
 
-        protected ConnectionFactory createConnectionFactory() throws Exception {
+        ConnectionFactory createConnectionFactory() throws Exception {
             ConnectionFactory factory = new ConnectionFactory();
             factory.setUri(amq_uri);
             factory.useSslProtocol();
