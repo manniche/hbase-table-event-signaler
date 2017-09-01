@@ -267,7 +267,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             try {
                 newRows.put(rowKey, !table.exists(get));
             } catch (Exception e) {
-                LOGGER.error(String.format("When trying use a cached table for %s, the code threw", tableName), e);
+                LOGGER.error(String.format("When trying to use a cached table for %s, the code threw", tableName), e);
                 throw e;
             }
         }
