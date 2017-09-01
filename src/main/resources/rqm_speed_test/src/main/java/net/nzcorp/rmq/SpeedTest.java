@@ -13,7 +13,10 @@ import java.net.URISyntaxException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
@@ -35,7 +38,7 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 public class SpeedTest {
     /*
      */
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         Options options = getOptions();
         CommandLineParser parser = new GnuParser();
         try {
@@ -51,41 +54,24 @@ public class SpeedTest {
             String queueName = "rmq_speed_test";
 
             System.out.println(String.format("Sending %d messages to %s using %d threads", iterations, host, numberThreads));
-            int split = (iterations / numberThreads);
-            System.out.println(String.format("split: %d", split));
 
-            ExecutorService exService = Executors.newFixedThreadPool(numberThreads);
-            Set<Callable<List<Long>>> callables = new HashSet<>();
+            MessageSender messageSender = new MessageSender(iterations, 1, host, queueName);
 
-            for (int i = 0; i < numberThreads; i++) {
-                callables.add(new MessageSender(split, split*i, host, queueName));
-            }
-            List<Future<List<Long>>> futures = exService.invokeAll(callables);
-
-
-            for(Future<List<Long>> future : futures){
-                System.out.println(String.format("Getting from future %s, is ready %s", future.toString(), future.isDone()));
-                List<Long> longs = future.get();
-                System.out.println(longs.size());
-                printStats(longs);
-            }
-
-            exService.shutdown();
-
-            //System.exit(0);
+            List<Long> longs = messageSender.call();
+            printStats(longs);
         } catch (ParseException | InterruptedException | ExecutionException e) {
             e.printStackTrace();
         }
     }
 
-    static class MessageSender implements Callable<List<Long>>{
+    static class MessageSender implements Callable<List<Long>> {
 
         private final int iterations;
         private final int start;
         private final String host;
         private final String queueName;
 
-        MessageSender(int iterations, int start, String host, String queueName){
+        MessageSender(int iterations, int start, String host, String queueName) {
             this.iterations = iterations;
             this.start = start;
             this.host = host;
@@ -141,6 +127,7 @@ public class SpeedTest {
                     timestamp(new Date()).
                     deliveryMode(1).build();
         }
+
         private Connection getRMQConnection(String uri) throws NoSuchAlgorithmException, KeyManagementException, URISyntaxException, IOException, TimeoutException {
             ConnectionFactory factory = new ConnectionFactory();
             factory.setShutdownTimeout(0); // So we still shut down even with slow consumers
@@ -175,20 +162,22 @@ public class SpeedTest {
     }
 
     private static void printStats(List<Long> timings) {
-        Map<String, Long> stats = getOutliers(timings);
+        Map<String, Long> stats = getStats(timings);
 
         System.out.println(String.format("Publish times range (min-max) (#%d)%d-(#%d)%d ms",
                 stats.get("min_at"),
                 NANOSECONDS.toMillis(stats.get("min")),
                 stats.get("max_at"),
                 NANOSECONDS.toMillis(stats.get("max"))));
-        System.out.println(String.format("Sum: %d ms", NANOSECONDS.toMillis(stats.get("sum"))));
-        System.out.println(String.format("Size: %d", stats.get("size")));
-        System.out.println(String.format("Mean publish time %d ms", NANOSECONDS.toMillis(stats.get("sum") / timings.size())));
+        System.out.println(String.format("Total time           %-6d ms", NANOSECONDS.toMillis(stats.get("sum"))));
+        System.out.println(String.format("# messages           %-6d", stats.get("size")));
+        System.out.println(String.format("Mean publish time    %-6d ms", NANOSECONDS.toMillis(stats.get("sum") / timings.size())));
+        System.out.println(String.format("Median publish time: %-6d ms", NANOSECONDS.toMillis(stats.get("median"))));
+        System.out.println(String.format("Messages/second:     %-6d", stats.get("msgpersec")));
     }
 
 
-    private static Map<String, Long> getOutliers(List<Long> list) {
+    private static Map<String, Long> getStats(List<Long> list) {
         Map<String, Long> v = new HashMap<>();
         long max = 0;
         long min = Long.MAX_VALUE;
@@ -208,6 +197,21 @@ public class SpeedTest {
             }
             sum += list.get(i);
         }
+        long seconds = NANOSECONDS.toSeconds(sum);
+        long ratio = list.size() / seconds;
+
+        long[] nums = list.stream().mapToLong(l -> l).toArray();
+        Arrays.sort(nums);  //Caution, in-line sort, make sure we do this last
+        double median;
+        if (nums.length % 2 == 0) {
+            median = ((double) nums[nums.length / 2] + (double) nums[nums.length / 2 - 1]) / 2;
+        }
+        else{
+            median = (double) nums[nums.length/2];
+        }
+
+        v.put("median", (long) median);
+        v.put("msgpersec", ratio);
         v.put("sum", sum);
         v.put("size", (long) list.size());
         return v;
@@ -236,7 +240,6 @@ public class SpeedTest {
     private static String strArg(CommandLine cmd, char opt, String def) {
         return cmd.getOptionValue(opt, def);
     }
-
 
 
 }
