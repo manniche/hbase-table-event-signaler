@@ -449,24 +449,18 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
     }
 
-    private final ConcurrentLinkedDeque<Channel> channels = new ConcurrentLinkedDeque<>();
-
     private Channel getChannel() throws IOException {
         ensureAmqpConnection();
 
-        // See if we already have an opened channel.
-        final Channel c = channels.pollFirst();
-        if (c != null && c.isOpen()) {
-            // We have it, and it appears to be working.
-            return c;
-        }
-
-        // Too few channels, let's create a new one
         return amqpConn.createChannel();
     }
 
     private void releaseChannel(Channel c) {
-        channels.push(c);
+        try {
+            c.close();
+        } catch (IOException | TimeoutException e) {
+            LOGGER.warn(String.format("Failed to close channel: %s", e.getMessage()), e);
+        }
     }
 
     @Override
