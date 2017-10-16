@@ -23,7 +23,7 @@
 
   <groupId>net.nzcorp.hbase</groupId>
   <artifactId>nzcorp-tableevent-signaler</artifactId>
-  <version>0.10.0</version>
+  <version>0.10.1</version>
   <packaging>jar</packaging>
 
   <build>

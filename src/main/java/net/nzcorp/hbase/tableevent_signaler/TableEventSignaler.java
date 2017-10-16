@@ -59,6 +59,11 @@ public class TableEventSignaler extends BaseRegionObserver {
     private volatile Connection amqpConn;
 
     /**
+     * The table name which the coprocessor is loaded on
+     */
+    private TableName currentTable;
+
+    /**
      * The table into which the values from the current table should be written into
      */
     private String destinationTable;
@@ -108,8 +113,12 @@ public class TableEventSignaler extends BaseRegionObserver {
 
     private ConnectionFactory factory;
 
+    private org.apache.hadoop.hbase.client.Connection hbase_connection;
+
     @Override
     public void start(final CoprocessorEnvironment env) throws IOException {
+
+        currentTable = ((RegionCoprocessorEnvironment)env).getRegion().getRegionInfo().getTable();
 
         destinationTable = env.getConfiguration().get("destination_table");
         if (Strings.isNullOrEmpty(destinationTable)) {
@@ -125,12 +134,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             LOGGER.fatal(err);
             throw new IllegalArgumentException(err);
         }
-        try (final Table _table = env.getTable(TableName.valueOf(secondaryIndexTable))) {
-        } catch (IOException e) {
-            String err = "Table " + secondaryIndexTable + " does not exist";
-            LOGGER.fatal(err);
-            throw e;
-        }
+
         LOGGER.info(String.format("Using secondary index table %s", secondaryIndexTable));
 
         secondaryIndexCF = env.getConfiguration().get("secondary_index_cf");
@@ -176,6 +180,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             throw new IOException(err);
         }
 
+        hbase_connection = org.apache.hadoop.hbase.client.ConnectionFactory.createConnection();
 
         factory = new ConnectionFactory();
         try {
@@ -294,11 +299,6 @@ public class TableEventSignaler extends BaseRegionObserver {
         LOGGER.debug("Entering TES#prePut");
         final long startTime = System.nanoTime();
 
-        final TableName tableName = observerContext.getEnvironment().getRegionInfo().getTable();
-        if (tableName == null) {
-            return;
-        }
-
         final List<Cell> cellList = put.getFamilyCellMap().get(sourceCF.getBytes());
         if (cellList == null) {
             return;
@@ -311,7 +311,7 @@ public class TableEventSignaler extends BaseRegionObserver {
             }
         }
 
-        final Map<RowKey, Boolean> newRows = getNewRows(observerContext.getEnvironment(), tableName, cellList);
+        final Map<RowKey, Boolean> newRows = getNewRows(observerContext.getEnvironment(), currentTable, cellList);
         LOGGER.debug(String.format("getNewRows at %d ms from start", NANOSECONDS.toMillis(System.nanoTime()-startTime)));
         for (final Cell cell : cellList) {
             byte[] cellValue = CellUtil.cloneValue(cell);
@@ -331,7 +331,8 @@ public class TableEventSignaler extends BaseRegionObserver {
             final String message = constructJsonObject(cell, rowKey.getRowKey());
             LOGGER.debug(String.format("constructed json at %d ms from start", NANOSECONDS.toMillis(System.nanoTime()-startTime)));
 
-            final String queueName = tableName.getNameAsString();
+            final String serverName = observerContext.getEnvironment().getRegionServerServices().getServerName().getHostname();
+            final String queueName = String.format("%s_%s", serverName, currentTable.getNameAsString());
             publishMessage(queueName, headers, message);
             LOGGER.debug(String.format("published msg at %d ms from start", NANOSECONDS.toMillis(System.nanoTime()-startTime)));
         }
@@ -342,18 +343,12 @@ public class TableEventSignaler extends BaseRegionObserver {
     }
 
     @Override
-    public void preDelete(ObserverContext<RegionCoprocessorEnvironment> e,
+    public void preDelete(ObserverContext<RegionCoprocessorEnvironment> observerContext,
                           Delete delete,
                           WALEdit edit,
                           Durability durability) throws IOException {
         long startTime = System.nanoTime();
         LOGGER.debug("Entering TES#preDelete");
-
-
-        final TableName tableName = e.getEnvironment().getRegionInfo().getTable();
-        if (tableName == null) {
-            return;
-        }
 
         final List<Cell> cellList = delete.getFamilyCellMap().get(sourceCF.getBytes());
         if (cellList == null || cellList.isEmpty()) {
@@ -372,7 +367,8 @@ public class TableEventSignaler extends BaseRegionObserver {
 
             final AMQP.BasicProperties headers = constructBasicProperties(HookAction.DELETE);
             final String message = constructJsonObject(cell, rowKey);
-            final String queueName = tableName.getNameAsString();
+            final String serverName = observerContext.getEnvironment().getRegionServerServices().getServerName().getHostname();
+            final String queueName = String.format("%s_%s", serverName, currentTable.getNameAsString());
 
             publishMessage(queueName, headers, message);
         }
@@ -449,23 +445,30 @@ public class TableEventSignaler extends BaseRegionObserver {
         }
     }
 
+    private final ConcurrentLinkedDeque<Channel> channels = new ConcurrentLinkedDeque<>();
+
     private Channel getChannel() throws IOException {
         ensureAmqpConnection();
 
+        // See if we already have an opened channel.
+        final Channel c = channels.pollFirst();
+        if (c != null && c.isOpen()) {
+            // We have it, and it appears to be working.
+            return c;
+        }
+
+        // Too few channels, let's create a new one
         return amqpConn.createChannel();
     }
 
     private void releaseChannel(Channel c) {
-        try {
-            c.close();
-        } catch (IOException | TimeoutException e) {
-            LOGGER.warn(String.format("Failed to close channel: %s", e.getMessage()), e);
-        }
+        channels.push(c);
     }
 
     @Override
     public void stop(CoprocessorEnvironment env) throws IOException {
         // Channels will be closed when connection is closed.
         amqpConn.close();
+        hbase_connection.close();
     }
 }
