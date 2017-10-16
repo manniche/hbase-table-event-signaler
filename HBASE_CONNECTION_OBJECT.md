@@ -1,0 +1,1 @@
+See this link on HW: https://community.hortonworks.com/articles/4091/hbase-client-application-best-practices.html
